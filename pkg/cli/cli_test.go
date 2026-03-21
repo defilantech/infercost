@@ -159,7 +159,7 @@ func TestVersionCommand_Output(t *testing.T) {
 		t.Fatalf("version command returned error: %v", err)
 	}
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = origStdout
 
 	var captured bytes.Buffer
@@ -203,7 +203,7 @@ func TestVersionCommand_CustomValues(t *testing.T) {
 		t.Fatalf("version command returned error: %v", err)
 	}
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = origStdout
 
 	var captured bytes.Buffer

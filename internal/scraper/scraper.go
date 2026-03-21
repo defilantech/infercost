@@ -48,7 +48,7 @@ func (c *Client) Scrape(ctx context.Context, url string) ([]MetricSample, error)
 	if err != nil {
 		return nil, fmt.Errorf("scraping %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("scraping %s: status %d", url, resp.StatusCode)

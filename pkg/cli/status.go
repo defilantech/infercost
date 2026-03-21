@@ -66,10 +66,10 @@ func runStatus(opts *statusOptions) error {
 	fmt.Println("INFRASTRUCTURE COSTS")
 	fmt.Println("====================")
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "PROFILE\tGPU MODEL\tGPUs\t$/HOUR\tAMORT\tELEC\tPOWER\tAGE\n")
+	_, _ = fmt.Fprintf(w, "PROFILE\tGPU MODEL\tGPUs\t$/HOUR\tAMORT\tELEC\tPOWER\tAGE\n")
 	for _, p := range profiles.Items {
 		age := formatAge(time.Since(p.CreationTimestamp.Time))
-		fmt.Fprintf(w, "%s\t%s\t%d\t$%.4f\t$%.4f\t$%.4f\t%.1fW\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t$%.4f\t$%.4f\t$%.4f\t%.1fW\t%s\n",
 			p.Name,
 			p.Spec.Hardware.GPUModel,
 			p.Spec.Hardware.GPUCount,
@@ -80,7 +80,7 @@ func runStatus(opts *statusOptions) error {
 			age,
 		)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	// Calculate monthly/yearly projections.
 	for _, p := range profiles.Items {
@@ -108,7 +108,7 @@ func runStatus(opts *statusOptions) error {
 	scrapeClient := scraper.NewClient(5 * time.Second)
 
 	w = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(w, "MODEL\tNAMESPACE\tPOD\tINPUT TOKENS\tOUTPUT TOKENS\tTOKENS/SEC\tSTATUS\n")
+	_, _ = fmt.Fprintf(w, "MODEL\tNAMESPACE\tPOD\tINPUT TOKENS\tOUTPUT TOKENS\tTOKENS/SEC\tSTATUS\n")
 
 	modelCount := 0
 	for i := range podList.Items {
@@ -118,7 +118,7 @@ func runStatus(opts *statusOptions) error {
 			continue
 		}
 		if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
-			fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\t%s\n",
 				modelName, pod.Namespace, pod.Name, string(pod.Status.Phase))
 			modelCount++
 			continue
@@ -128,7 +128,7 @@ func runStatus(opts *statusOptions) error {
 		endpoint := fmt.Sprintf("http://%s:8080/metrics", pod.Status.PodIP)
 		im, err := scraper.ScrapeLlamaCPP(ctx, scrapeClient, endpoint)
 		if err != nil {
-			fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\tScrape Error\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\tScrape Error\n",
 				modelName, pod.Namespace, pod.Name)
 			modelCount++
 			continue
@@ -139,7 +139,7 @@ func runStatus(opts *statusOptions) error {
 			status = fmt.Sprintf("Active (%d req)", int(im.RequestsProcessing))
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.1f\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.1f\t%s\n",
 			modelName,
 			pod.Namespace,
 			pod.Name,
@@ -150,7 +150,7 @@ func runStatus(opts *statusOptions) error {
 		)
 		modelCount++
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	if modelCount == 0 {
 		fmt.Println("  No inference pods found with LLMKube labels.")
@@ -190,16 +190,16 @@ func runStatus(opts *statusOptions) error {
 			comparisons := calculator.CompareToCloud(int64(totalInput), int64(totalOutput), onPremTotal, pricing)
 
 			w = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintf(w, "  PROVIDER\tMODEL\tCLOUD COST\tSAVINGS\t\n")
+			_, _ = fmt.Fprintf(w, "  PROVIDER\tMODEL\tCLOUD COST\tSAVINGS\t\n")
 			for _, c := range comparisons {
 				savingsStr := fmt.Sprintf("$%.2f (%.0f%%)", c.SavingsUSD, c.SavingsPercent)
 				if c.SavingsPercent < 0 {
 					savingsStr = fmt.Sprintf("-$%.2f (cloud %.0f%% cheaper)", -c.SavingsUSD, -c.SavingsPercent)
 				}
-				fmt.Fprintf(w, "  %s\t%s\t$%.2f\t%s\t\n",
+				_, _ = fmt.Fprintf(w, "  %s\t%s\t$%.2f\t%s\t\n",
 					c.Provider, c.Model, c.CloudCostUSD, savingsStr)
 			}
-			w.Flush()
+			_ = w.Flush()
 		}
 	}
 

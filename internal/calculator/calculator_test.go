@@ -6,10 +6,8 @@ import (
 	"time"
 )
 
-const floatTolerance = 1e-9
-
-func almostEqual(a, b, tolerance float64) bool {
-	return math.Abs(a-b) <= tolerance
+func almostEqual(a, b float64) bool {
+	return math.Abs(a-b) <= 1e-9
 }
 
 func TestComputeHourlyCost(t *testing.T) {
@@ -120,13 +118,13 @@ func TestComputeHourlyCost(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotAmort, gotElec, gotTotal := ComputeHourlyCost(tt.hw, tt.powerDrawWatts)
 
-			if !almostEqual(gotAmort, tt.wantAmort, floatTolerance) {
+			if !almostEqual(gotAmort, tt.wantAmort) {
 				t.Errorf("amortization = %v, want %v", gotAmort, tt.wantAmort)
 			}
-			if !almostEqual(gotElec, tt.wantElec, floatTolerance) {
+			if !almostEqual(gotElec, tt.wantElec) {
 				t.Errorf("electricity = %v, want %v", gotElec, tt.wantElec)
 			}
-			if !almostEqual(gotTotal, tt.wantTotal, floatTolerance) {
+			if !almostEqual(gotTotal, tt.wantTotal) {
 				t.Errorf("total = %v, want %v", gotTotal, tt.wantTotal)
 			}
 		})
@@ -141,7 +139,7 @@ func TestComputeHourlyCost_ComponentRelationship(t *testing.T) {
 		PUEFactor:         1.0,
 	}
 	amort, elec, total := ComputeHourlyCost(hw, 150.0)
-	if !almostEqual(total, amort+elec, floatTolerance) {
+	if !almostEqual(total, amort+elec) {
 		t.Errorf("total (%v) should equal amortization (%v) + electricity (%v)", total, amort, elec)
 	}
 }
@@ -293,13 +291,13 @@ func TestComputeTokenRate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotInput, gotOutput, gotTotal := ComputeTokenRate(tt.prev, tt.curr)
 
-			if !almostEqual(gotInput, tt.wantInputRate, floatTolerance) {
+			if !almostEqual(gotInput, tt.wantInputRate) {
 				t.Errorf("inputPerHour = %v, want %v", gotInput, tt.wantInputRate)
 			}
-			if !almostEqual(gotOutput, tt.wantOutputRate, floatTolerance) {
+			if !almostEqual(gotOutput, tt.wantOutputRate) {
 				t.Errorf("outputPerHour = %v, want %v", gotOutput, tt.wantOutputRate)
 			}
-			if !almostEqual(gotTotal, tt.wantTotalRate, floatTolerance) {
+			if !almostEqual(gotTotal, tt.wantTotalRate) {
 				t.Errorf("totalPerHour = %v, want %v", gotTotal, tt.wantTotalRate)
 			}
 		})
@@ -348,7 +346,7 @@ func TestComputeCostPerToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ComputeCostPerToken(tt.hourlyCost, tt.tokensPerHr)
-			if !almostEqual(got, tt.wantCPT, floatTolerance) {
+			if !almostEqual(got, tt.wantCPT) {
 				t.Errorf("ComputeCostPerToken(%v, %v) = %v, want %v",
 					tt.hourlyCost, tt.tokensPerHr, got, tt.wantCPT)
 			}
@@ -386,19 +384,19 @@ func TestComputeFull(t *testing.T) {
 	expectedCPT := expectedTotal / 60000.0
 	expectedCPM := expectedCPT * 1_000_000
 
-	if !almostEqual(result.AmortizationPerHour, expectedAmort, floatTolerance) {
+	if !almostEqual(result.AmortizationPerHour, expectedAmort) {
 		t.Errorf("AmortizationPerHour = %v, want %v", result.AmortizationPerHour, expectedAmort)
 	}
-	if !almostEqual(result.ElectricityPerHour, expectedElec, floatTolerance) {
+	if !almostEqual(result.ElectricityPerHour, expectedElec) {
 		t.Errorf("ElectricityPerHour = %v, want %v", result.ElectricityPerHour, expectedElec)
 	}
-	if !almostEqual(result.TotalPerHour, expectedTotal, floatTolerance) {
+	if !almostEqual(result.TotalPerHour, expectedTotal) {
 		t.Errorf("TotalPerHour = %v, want %v", result.TotalPerHour, expectedTotal)
 	}
-	if !almostEqual(result.CostPerToken, expectedCPT, floatTolerance) {
+	if !almostEqual(result.CostPerToken, expectedCPT) {
 		t.Errorf("CostPerToken = %v, want %v", result.CostPerToken, expectedCPT)
 	}
-	if !almostEqual(result.CostPerMillionTokens, expectedCPM, floatTolerance) {
+	if !almostEqual(result.CostPerMillionTokens, expectedCPM) {
 		t.Errorf("CostPerMillionTokens = %v, want %v", result.CostPerMillionTokens, expectedCPM)
 	}
 	if result.GPUEfficiencyRatio != 1.0 {
@@ -550,16 +548,16 @@ func TestCompareToCloud(t *testing.T) {
 	if r.Model != "test-model" {
 		t.Errorf("Model = %q, want %q", r.Model, "test-model")
 	}
-	if !almostEqual(r.CloudCostUSD, expectedCloudCost, floatTolerance) {
+	if !almostEqual(r.CloudCostUSD, expectedCloudCost) {
 		t.Errorf("CloudCostUSD = %v, want %v", r.CloudCostUSD, expectedCloudCost)
 	}
-	if !almostEqual(r.OnPremCostUSD, onPremCost, floatTolerance) {
+	if !almostEqual(r.OnPremCostUSD, onPremCost) {
 		t.Errorf("OnPremCostUSD = %v, want %v", r.OnPremCostUSD, onPremCost)
 	}
-	if !almostEqual(r.SavingsUSD, expectedSavings, floatTolerance) {
+	if !almostEqual(r.SavingsUSD, expectedSavings) {
 		t.Errorf("SavingsUSD = %v, want %v", r.SavingsUSD, expectedSavings)
 	}
-	if !almostEqual(r.SavingsPercent, expectedSavingsPct, floatTolerance) {
+	if !almostEqual(r.SavingsPercent, expectedSavingsPct) {
 		t.Errorf("SavingsPercent = %v, want %v", r.SavingsPercent, expectedSavingsPct)
 	}
 }
@@ -574,7 +572,7 @@ func TestCompareToCloud_OnPremMoreExpensive(t *testing.T) {
 	r := results[0]
 	// Cloud cost: (100K/1M * 0.10) + (50K/1M * 0.30) = 0.01 + 0.015 = 0.025
 	expectedCloudCost := 0.025
-	if !almostEqual(r.CloudCostUSD, expectedCloudCost, floatTolerance) {
+	if !almostEqual(r.CloudCostUSD, expectedCloudCost) {
 		t.Errorf("CloudCostUSD = %v, want %v", r.CloudCostUSD, expectedCloudCost)
 	}
 	if r.SavingsUSD >= 0 {
@@ -593,15 +591,15 @@ func TestCompareToCloud_ZeroTokens(t *testing.T) {
 	results := CompareToCloud(0, 0, 0.05, pricing)
 	r := results[0]
 
-	if !almostEqual(r.CloudCostUSD, 0, floatTolerance) {
+	if !almostEqual(r.CloudCostUSD, 0) {
 		t.Errorf("CloudCostUSD = %v, want 0 for zero tokens", r.CloudCostUSD)
 	}
 	// savings = 0 - 0.05 = -0.05 (on-prem still has fixed costs)
-	if !almostEqual(r.SavingsUSD, -0.05, floatTolerance) {
+	if !almostEqual(r.SavingsUSD, -0.05) {
 		t.Errorf("SavingsUSD = %v, want -0.05", r.SavingsUSD)
 	}
 	// savingsPct should be 0 because cloudCost is 0
-	if !almostEqual(r.SavingsPercent, 0, floatTolerance) {
+	if !almostEqual(r.SavingsPercent, 0) {
 		t.Errorf("SavingsPercent = %v, want 0 (cloud cost is zero)", r.SavingsPercent)
 	}
 }
@@ -624,7 +622,7 @@ func TestCompareToCloud_MultipleProviders(t *testing.T) {
 		if r.OnPremCostUSD != 0.50 {
 			t.Errorf("result[%d].OnPremCostUSD = %v, want 0.50", i, r.OnPremCostUSD)
 		}
-		if !almostEqual(r.SavingsUSD, r.CloudCostUSD-r.OnPremCostUSD, floatTolerance) {
+		if !almostEqual(r.SavingsUSD, r.CloudCostUSD-r.OnPremCostUSD) {
 			t.Errorf("result[%d].SavingsUSD = %v, want CloudCostUSD - OnPremCostUSD = %v",
 				i, r.SavingsUSD, r.CloudCostUSD-r.OnPremCostUSD)
 		}

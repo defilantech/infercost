@@ -42,9 +42,6 @@ const (
 
 	// Label on inference pods that identifies the model name (LLMKube convention).
 	modelLabel = "inference.llmkube.dev/model"
-
-	// Label on inference pods that identifies the service name.
-	serviceLabel = "inference.llmkube.dev/service"
 )
 
 // CostProfileReconciler reconciles a CostProfile object.
@@ -174,6 +171,9 @@ func (r *CostProfileReconciler) scrapeInferencePods(ctx context.Context, profile
 		return fmt.Errorf("listing pods: %w", err)
 	}
 
+	// Aggregate tokens across all pods for cloud comparison (computed once, not per-pod).
+	var totalInputTokens, totalOutputTokens int64
+
 	// Filter to pods that have inference labels and are running.
 	for i := range podList.Items {
 		pod := &podList.Items[i]
@@ -203,26 +203,13 @@ func (r *CostProfileReconciler) scrapeInferencePods(ctx context.Context, profile
 		im.Namespace = pod.Namespace
 		im.Model = modelName
 
-		// Always update token counters and cloud comparison (no rate dependency).
+		// Update per-model token counters.
 		infercostmetrics.TokensTotal.WithLabelValues(modelName, pod.Namespace, "input").Set(im.PromptTokensTotal)
 		infercostmetrics.TokensTotal.WithLabelValues(modelName, pod.Namespace, "output").Set(im.PredictedTokensTotal)
 
-		// Cloud comparison: honest on-prem cost = total infrastructure hours × hourly rate.
-		// GPUs cost money even when idle — this reflects true TCO, not marginal per-token cost.
-		inputTokens := int64(im.PromptTokensTotal)
-		outputTokens := int64(im.PredictedTokensTotal)
-		hoursRunning := time.Since(profile.CreationTimestamp.Time).Hours()
-		if hoursRunning < 0.001 {
-			hoursRunning = 0.001 // Avoid division issues on brand new profiles
-		}
-		onPremCost := hourlyCost * hoursRunning
-
-		comparisons := calculator.CompareToCloud(inputTokens, outputTokens, onPremCost, calculator.DefaultCloudPricing())
-		for _, c := range comparisons {
-			infercostmetrics.CloudEquivalentCostUSD.WithLabelValues(c.Provider, c.Model).Set(c.CloudCostUSD)
-			infercostmetrics.SavingsVsCloudUSD.WithLabelValues(c.Provider, c.Model).Set(c.SavingsUSD)
-			infercostmetrics.SavingsVsCloudPercent.WithLabelValues(c.Provider, c.Model).Set(c.SavingsPercent)
-		}
+		// Accumulate for cloud comparison.
+		totalInputTokens += int64(im.PromptTokensTotal)
+		totalOutputTokens += int64(im.PredictedTokensTotal)
 
 		// Token rate computation: only update snapshot if enough time has elapsed.
 		// Status updates trigger re-reconciles within milliseconds — debounce to avoid
@@ -269,6 +256,23 @@ func (r *CostProfileReconciler) scrapeInferencePods(ctx context.Context, profile
 			"tokensPerHour", fmt.Sprintf("%.0f", totalTokensPerHour),
 			"costPerMTok", fmt.Sprintf("$%.4f", costPerToken*1_000_000),
 		)
+	}
+
+	// Cloud comparison: aggregate across ALL pods, compute once.
+	// On-prem cost = total infrastructure hours × hourly rate (GPUs cost money even when idle).
+	if totalInputTokens+totalOutputTokens > 0 {
+		hoursRunning := time.Since(profile.CreationTimestamp.Time).Hours()
+		if hoursRunning < 0.001 {
+			hoursRunning = 0.001
+		}
+		onPremCost := hourlyCost * hoursRunning
+
+		comparisons := calculator.CompareToCloud(totalInputTokens, totalOutputTokens, onPremCost, calculator.DefaultCloudPricing())
+		for _, c := range comparisons {
+			infercostmetrics.CloudEquivalentCostUSD.WithLabelValues(c.Provider, c.Model).Set(c.CloudCostUSD)
+			infercostmetrics.SavingsVsCloudUSD.WithLabelValues(c.Provider, c.Model).Set(c.SavingsUSD)
+			infercostmetrics.SavingsVsCloudPercent.WithLabelValues(c.Provider, c.Model).Set(c.SavingsPercent)
+		}
 	}
 
 	return nil

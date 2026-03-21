@@ -150,10 +150,10 @@ func runCompare(opts *compareOptions) error {
 			savingsStr = fmt.Sprintf("-$%.2f (%.0f%% more)", -c.SavingsUSD, -c.SavingsPercent)
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t$%.2f\t$%.2f\t$%.2f\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t$%.2f\t$%.2f\t$%.2f\t%s\n",
 			c.Provider, c.Model, inputRate, outputRate, c.CloudCostUSD, savingsStr)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	// Monthly projection if requested.
 	if opts.monthly && hoursRunning > 0 {
@@ -177,16 +177,16 @@ func runCompare(opts *compareOptions) error {
 			int64(monthlyInput), int64(monthlyOutput), monthlyOnPrem, pricing)
 
 		w = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintf(w, "PROVIDER\tMODEL\tCLOUD/MONTH\tON-PREM/MONTH\tSAVINGS/MONTH\n")
+		_, _ = fmt.Fprintf(w, "PROVIDER\tMODEL\tCLOUD/MONTH\tON-PREM/MONTH\tSAVINGS/MONTH\n")
 		for _, c := range monthlyComparisons {
 			savingsStr := fmt.Sprintf("$%.0f (%.0f%%)", c.SavingsUSD, c.SavingsPercent)
 			if c.SavingsPercent < 0 {
 				savingsStr = fmt.Sprintf("-$%.0f (%.0f%% more)", -c.SavingsUSD, -c.SavingsPercent)
 			}
-			fmt.Fprintf(w, "%s\t%s\t$%.0f\t$%.0f\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t$%.0f\t$%.0f\t%s\n",
 				c.Provider, c.Model, c.CloudCostUSD, c.OnPremCostUSD, savingsStr)
 		}
-		w.Flush()
+		_ = w.Flush()
 	}
 
 	fmt.Println()
