@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- finops_v1alpha1_costprofile.yaml
+- finops_v1alpha1_usagereport.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

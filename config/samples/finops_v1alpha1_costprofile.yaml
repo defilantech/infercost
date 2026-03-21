@@ -1,0 +1,20 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  labels:
+    app.kubernetes.io/name: infercost
+    app.kubernetes.io/managed-by: kustomize
+  name: shadowstack-rtx5060ti
+spec:
+  hardware:
+    gpuModel: "NVIDIA GeForce RTX 5060 Ti"
+    gpuCount: 2
+    purchasePriceUSD: 960       # 2x $480 each
+    amortizationYears: 3
+    maintenancePercentPerYear: 0.05
+    tdpWatts: 150               # Per GPU TDP, fallback if DCGM unavailable
+  electricity:
+    ratePerKWh: 0.08            # Gig Harbor, WA residential rate
+    pueFactor: 1.0              # Home office, no datacenter overhead
+  nodeSelector:
+    kubernetes.io/hostname: shadowstack

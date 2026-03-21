@@ -1,12 +1,13 @@
-# InferCost — AI FinOps for On-Premises LLM Inference
+# InferCost — True Cost Intelligence for On-Prem AI Inference
 
-Kubernetes-native cost intelligence platform that tracks the true cost of self-hosted LLM inference: hardware amortization, electricity, per-token and per-user attribution, with cloud-equivalent comparison.
+Kubernetes-native cost intelligence platform that makes on-premises AI inference costs fully attributable — from GPU amortization through electricity to per-request economics, across any inference workload.
 
 **Repo**: github.com/defilantech/infercost | **License**: Apache 2.0
 **Domain**: infercost.ai
-**Module**: `github.com/defilantech/infercost` (Go)
-**Status**: Pre-development (scaffolding phase)
-**Companion to**: [LLMKube](https://github.com/defilantech/llmkube) (works standalone but has first-class LLMKube integration)
+**Module**: `github.com/defilantech/infercost` (Go 1.26)
+**API Group**: `finops.infercost.ai`
+**Status**: M0 — PoC development
+**Positioning**: Independent product. Works with any K8s inference stack. First-class LLMKube integration.
 
 ## Problem
 
@@ -82,12 +83,23 @@ make install         # Install CRDs into cluster
 make deploy          # Deploy controller to cluster
 ```
 
+## Product Ladder
+
+Observe → Report → Alert → Enforce → Optimize → Comply
+
 ## Build Phases
 
-1. **MVP**: CostProfile CRD, cost calculator, UsageReport writer, Grafana dashboard
-2. **User Attribution**: LiteLLM PostgreSQL integration, per-user/team cost views
-3. **Budget Enforcement**: TokenBudget CRD, PrometheusRule alerting
-4. **Enterprise**: Monthly report export, FOCUS spec compliance, multi-cluster
+1. **M0 PoC**: CostProfile CRD, cost calculator, CLI, deploy to Shadowstack
+2. **M1 MVP (v0.1.0)**: Helm chart, UsageReport writer, Grafana dashboard, docs, public launch
+3. **M2 Attribution (v0.2.0)**: Per-namespace/user cost, TokenBudget CRD, alerting
+4. **M3 Enterprise (v0.3.0)**: Budget enforcement, audit export, FOCUS-compatible output
+5. **M4 Optimize (v0.4.0)**: Recommendations, multi-cluster, FinOps/CNCF submissions
+
+## Standards Alignment
+
+- **OTel GenAI**: Metric naming follows `gen_ai.usage.*` semantic conventions
+- **FOCUS**: FOCUS-compatible export + `x-Infer*` extension schema for on-prem
+- **OpenCost**: Complementary — they do infra cost, we do inference economics
 
 ## Commit Messages & Release Please
 
@@ -99,6 +111,9 @@ Same conventions as LLMKube:
 | `fix:` | Bug fixes | patch (0.0.x) |
 | `chore:` | Deps, CI, tooling | none |
 | `docs:` | Documentation-only | patch |
+
+**DCO sign-off required** — always use `git commit -s`.
+**Do NOT include Co-Authored-By lines** — no mention of Claude/AI in commits or PRs.
 
 ## Clusters
 

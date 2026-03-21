@@ -1,0 +1,10 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: UsageReport
+metadata:
+  labels:
+    app.kubernetes.io/name: infercost
+    app.kubernetes.io/managed-by: kustomize
+  name: shadowstack-daily
+spec:
+  costProfileRef: shadowstack-rtx5060ti
+  schedule: daily
