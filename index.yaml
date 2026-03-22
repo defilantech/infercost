@@ -1,3 +1,32 @@
 apiVersion: v1
-entries: {}
-generated: "2026-03-22T00:00:00Z"
+entries:
+  infercost:
+  - annotations:
+      helm.sh/resource-policy: keep
+    apiVersion: v2
+    appVersion: 0.1.0
+    created: "2026-03-22T16:45:44.807229-07:00"
+    description: A Helm chart for InferCost - Kubernetes-native cost intelligence
+      for on-premises AI inference
+    digest: d3a7f9768f43a259868906da53f5212b59ee2c0009bcd4975d7f23c60c2c17d1
+    home: https://infercost.ai
+    keywords:
+    - finops
+    - cost
+    - inference
+    - gpu
+    - kubernetes
+    - operator
+    - ai
+    - prometheus
+    maintainers:
+    - email: contact@defilan.com
+      name: Chris Maher
+    name: infercost
+    sources:
+    - https://github.com/defilantech/infercost
+    type: application
+    urls:
+    - https://github.com/defilantech/infercost/releases/download/v0.1.0/infercost-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-03-22T16:45:44.806504-07:00"
