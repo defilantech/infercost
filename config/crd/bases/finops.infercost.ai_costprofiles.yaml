@@ -1,0 +1,227 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: costprofiles.finops.infercost.ai
+spec:
+  group: finops.infercost.ai
+  names:
+    kind: CostProfile
+    listKind: CostProfileList
+    plural: costprofiles
+    singular: costprofile
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.hardware.gpuModel
+      name: GPU Model
+      type: string
+    - jsonPath: .spec.hardware.gpuCount
+      name: GPUs
+      type: integer
+    - format: float
+      jsonPath: .status.hourlyCostUSD
+      name: $/hr
+      type: number
+    - format: float
+      jsonPath: .status.currentPowerDrawWatts
+      name: Power (W)
+      type: number
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          CostProfile declares the hardware economics for a node or pool of GPUs.
+          InferCost uses this to compute the true cost of inference workloads running
+          on the matched nodes.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CostProfileSpec defines the hardware economics for computing
+              inference costs.
+            properties:
+              electricity:
+                description: electricity declares electricity cost parameters.
+                properties:
+                  pueFactor:
+                    description: |-
+                      pueFactor is the Power Usage Effectiveness factor. 1.0 means no overhead (typical for
+                      homelabs), 1.2-1.6 for data centers. Defaults to 1.0.
+                    type: number
+                  ratePerKWh:
+                    description: ratePerKWh is the electricity cost in USD per kilowatt-hour.
+                    type: number
+                required:
+                - ratePerKWh
+                type: object
+              hardware:
+                description: hardware declares GPU hardware cost parameters.
+                properties:
+                  amortizationYears:
+                    default: 3
+                    description: amortizationYears is the useful life over which the
+                      hardware cost is amortized.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  gpuCount:
+                    description: gpuCount is the number of GPUs covered by this cost
+                      profile.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  gpuModel:
+                    description: gpuModel is the GPU model name (e.g. "NVIDIA GeForce
+                      RTX 5060 Ti", "NVIDIA H100 SXM5").
+                    minLength: 1
+                    type: string
+                  maintenancePercentPerYear:
+                    description: maintenancePercentPerYear is the annual maintenance
+                      cost as a percentage of purchase price (0.0-1.0).
+                    type: number
+                  purchasePriceUSD:
+                    description: purchasePriceUSD is the total purchase price of the
+                      GPU hardware in USD.
+                    type: number
+                  tdpWatts:
+                    description: |-
+                      tdpWatts is the thermal design power per GPU in watts. Used as fallback when DCGM
+                      power metrics are unavailable. If omitted, real-time DCGM metrics are required.
+                    format: int32
+                    type: integer
+                required:
+                - amortizationYears
+                - gpuCount
+                - gpuModel
+                - purchasePriceUSD
+                type: object
+              namespaceSelector:
+                additionalProperties:
+                  type: string
+                description: |-
+                  namespaceSelector limits cost attribution to pods in matching namespaces.
+                  If omitted, all namespaces on matching nodes are included.
+                type: object
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: |-
+                  nodeSelector matches nodes whose inference workloads are covered by this cost profile.
+                  Uses standard Kubernetes label selectors.
+                type: object
+            required:
+            - electricity
+            - hardware
+            type: object
+          status:
+            description: CostProfileStatus defines the computed state of a CostProfile.
+            properties:
+              amortizationRatePerHour:
+                description: amortizationRatePerHour is the hardware amortization
+                  component of hourly cost.
+                type: number
+              conditions:
+                description: conditions represent the current state of the CostProfile.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              currentPowerDrawWatts:
+                description: currentPowerDrawWatts is the real-time total GPU power
+                  draw from DCGM.
+                type: number
+              electricityCostPerHour:
+                description: electricityCostPerHour is the electricity component of
+                  hourly cost at current power draw.
+                type: number
+              hourlyCostUSD:
+                description: hourlyCostUSD is the total computed hourly cost (amortization
+                  + electricity).
+                type: number
+              lastUpdated:
+                description: lastUpdated is the timestamp of the last cost computation.
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

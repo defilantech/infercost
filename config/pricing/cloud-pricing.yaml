@@ -1,0 +1,70 @@
+# Cloud API pricing for InferCost comparison.
+#
+# These are list prices as of March 2026. They do NOT reflect:
+# - Negotiated enterprise rates
+# - Batch API discounts (typically 50% off)
+# - Cached/prefilled token discounts
+# - Free tier usage
+#
+# Users should override this with their actual rates via ConfigMap.
+# Verify prices at the source URLs below before making financial decisions.
+#
+# Last verified: 2026-03-21
+
+providers:
+  # Source: https://developers.openai.com/api/docs/pricing
+  - provider: OpenAI
+    models:
+      - model: gpt-5.4
+        inputPerMillion: 2.50
+        outputPerMillion: 15.00
+        tier: flagship
+        notes: "1M context, reasoning capable"
+      - model: gpt-5.4-mini
+        inputPerMillion: 0.75
+        outputPerMillion: 4.50
+        tier: mid
+        notes: "400K context"
+      - model: gpt-5.4-nano
+        inputPerMillion: 0.20
+        outputPerMillion: 1.25
+        tier: budget
+        notes: "400K context, cheapest OpenAI model"
+
+  # Source: https://platform.claude.com/docs/en/about-claude/pricing
+  - provider: Anthropic
+    models:
+      - model: claude-opus-4-6
+        inputPerMillion: 5.00
+        outputPerMillion: 25.00
+        tier: flagship
+        notes: "1M context, 128K max output"
+      - model: claude-sonnet-4-6
+        inputPerMillion: 3.00
+        outputPerMillion: 15.00
+        tier: mid
+        notes: "1M context, 64K max output"
+      - model: claude-haiku-4-5
+        inputPerMillion: 1.00
+        outputPerMillion: 5.00
+        tier: budget
+        notes: "200K context, 64K max output"
+
+  # Source: https://ai.google.dev/gemini-api/docs/pricing
+  - provider: Google
+    models:
+      - model: gemini-2.5-pro
+        inputPerMillion: 1.25
+        outputPerMillion: 10.00
+        tier: flagship
+        notes: "<=200K context. >200K: $2.50 input, $15.00 output"
+      - model: gemini-2.5-flash
+        inputPerMillion: 0.30
+        outputPerMillion: 2.50
+        tier: mid
+        notes: "Includes thinking tokens"
+      - model: gemini-2.5-flash-lite
+        inputPerMillion: 0.10
+        outputPerMillion: 0.40
+        tier: budget
+        notes: "Cheapest major provider model"
