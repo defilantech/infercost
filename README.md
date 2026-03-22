@@ -1,6 +1,10 @@
-# InferCost
+<p align="center">
+  <img src="docs/images/logo.svg" alt="InferCost" width="64" height="64">
+</p>
 
-**True cost intelligence for on-premises AI inference.**
+<h1 align="center">InferCost</h1>
+
+<p align="center"><strong>True cost intelligence for on-premises AI inference.</strong></p>
 
 [![Tests](https://github.com/defilantech/infercost/actions/workflows/test.yml/badge.svg)](https://github.com/defilantech/infercost/actions/workflows/test.yml)
 [![Lint](https://github.com/defilantech/infercost/actions/workflows/lint.yml/badge.svg)](https://github.com/defilantech/infercost/actions/workflows/lint.yml)

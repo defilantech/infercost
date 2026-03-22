@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Diamond outline (top half) -->
+  <path d="M32 4 L60 32 L32 32 L4 32 Z" stroke="#10b981" stroke-width="3" fill="none"/>
+  <!-- Diamond solid (bottom half) -->
+  <path d="M4 32 L32 32 L60 32 L32 60 Z" fill="#10b981"/>
+</svg>
