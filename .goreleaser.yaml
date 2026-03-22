@@ -87,6 +87,24 @@ docker_manifests:
 checksum:
   name_template: "checksums.txt"
 
+# Homebrew tap
+brews:
+  - name: infercost
+    ids:
+      - infercost
+    repository:
+      owner: defilantech
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    description: "Kubernetes-native cost intelligence for on-premises AI inference"
+    homepage: "https://infercost.ai"
+    license: "Apache-2.0"
+    install: |
+      bin.install "infercost"
+    test: |
+      system "#{bin}/infercost", "version"
+
 changelog:
   sort: asc
   filters:
@@ -96,3 +114,6 @@ changelog:
       - "^test:"
       - "^refactor:"
       - "^docs:"
+
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"
