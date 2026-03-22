@@ -31,6 +31,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
+	internalapi "github.com/defilantech/infercost/internal/api"
 	"github.com/defilantech/infercost/internal/calculator"
 	infercostmetrics "github.com/defilantech/infercost/internal/metrics"
 	"github.com/defilantech/infercost/internal/scraper"
@@ -50,6 +51,7 @@ type CostProfileReconciler struct {
 	Scheme       *runtime.Scheme
 	ScrapeClient *scraper.Client
 	DCGMEndpoint string // DCGM exporter service URL
+	APIStore     *internalapi.Store
 
 	// tokenSnapshots tracks previous token readings for rate computation.
 	tokenSnapshots map[string]calculator.TokenSnapshot
@@ -149,6 +151,28 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// 7. Update API store.
+	if r.APIStore != nil {
+		hoursRunning := time.Since(profile.CreationTimestamp.Time).Hours()
+		r.APIStore.SetCostData(internalapi.CostData{
+			ProfileName:       profile.Name,
+			GPUModel:          profile.Spec.Hardware.GPUModel,
+			GPUCount:          profile.Spec.Hardware.GPUCount,
+			HourlyCostUSD:     total,
+			AmortizationPerHr: amort,
+			ElectricityPerHr:  elec,
+			PowerDrawWatts:    totalPowerW,
+			MonthlyProjected:  total * 24 * 30,
+			YearlyProjected:   total * 8760,
+			PurchasePriceUSD:  profile.Spec.Hardware.PurchasePriceUSD,
+			AmortizationYears: profile.Spec.Hardware.AmortizationYears,
+			RatePerKWh:        profile.Spec.Electricity.RatePerKWh,
+			PUEFactor:         profile.Spec.Electricity.PUEFactor,
+			UptimeHours:       hoursRunning,
+			LastUpdated:       time.Now(),
+		})
+	}
+
 	log.Info("cost computed",
 		"hourlyCost", fmt.Sprintf("$%.4f", total),
 		"powerDraw", fmt.Sprintf("%.1fW", totalPowerW),
@@ -173,6 +197,7 @@ func (r *CostProfileReconciler) scrapeInferencePods(ctx context.Context, profile
 
 	// Aggregate tokens across all pods for cloud comparison (computed once, not per-pod).
 	var totalInputTokens, totalOutputTokens int64
+	var modelDataList []internalapi.ModelData
 
 	// Filter to pods that have inference labels and are running.
 	for i := range podList.Items {
@@ -210,6 +235,17 @@ func (r *CostProfileReconciler) scrapeInferencePods(ctx context.Context, profile
 		// Accumulate for cloud comparison.
 		totalInputTokens += int64(im.PromptTokensTotal)
 		totalOutputTokens += int64(im.PredictedTokensTotal)
+
+		// Collect model data for API store.
+		modelDataList = append(modelDataList, internalapi.ModelData{
+			Model:        modelName,
+			Namespace:    pod.Namespace,
+			Pod:          pod.Name,
+			InputTokens:  im.PromptTokensTotal,
+			OutputTokens: im.PredictedTokensTotal,
+			TokensPerSec: im.PredictedTokensPerSec,
+			IsActive:     im.RequestsProcessing > 0,
+		})
 
 		// Token rate computation: only update snapshot if enough time has elapsed.
 		// Status updates trigger re-reconciles within milliseconds — debounce to avoid
@@ -273,6 +309,16 @@ func (r *CostProfileReconciler) scrapeInferencePods(ctx context.Context, profile
 			infercostmetrics.SavingsVsCloudUSD.WithLabelValues(c.Provider, c.Model).Set(c.SavingsUSD)
 			infercostmetrics.SavingsVsCloudPercent.WithLabelValues(c.Provider, c.Model).Set(c.SavingsPercent)
 		}
+
+		// Update API store with comparison data.
+		if r.APIStore != nil {
+			r.APIStore.SetComparisons(internalapi.BuildComparisons(totalInputTokens, totalOutputTokens, onPremCost))
+		}
+	}
+
+	// Update API store with model data.
+	if r.APIStore != nil {
+		r.APIStore.SetModels(modelDataList)
 	}
 
 	return nil

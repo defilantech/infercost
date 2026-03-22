@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
+	internalapi "github.com/defilantech/infercost/internal/api"
 	"github.com/defilantech/infercost/internal/controller"
 	_ "github.com/defilantech/infercost/internal/metrics" // Register custom Prometheus metrics
 	"github.com/defilantech/infercost/internal/scraper"
@@ -65,7 +66,10 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var dcgmEndpoint string
+	var apiAddr string
 	var tlsOpts []func(*tls.Config)
+	flag.StringVar(&apiAddr, "api-bind-address", "",
+		"Address for the InferCost REST API (e.g. :8092). If empty, API server is disabled.")
 	flag.StringVar(&dcgmEndpoint, "dcgm-endpoint", "",
 		"DCGM exporter metrics endpoint URL (e.g. http://nvidia-dcgm-exporter.gpu-operator-resources.svc:9400/metrics). "+
 			"If empty, falls back to TDP-based power estimation from CostProfile spec.")
@@ -186,12 +190,14 @@ func main() {
 	}
 
 	scrapeClient := scraper.NewClient(10 * time.Second)
+	apiStore := internalapi.NewStore()
 
 	if err := (&controller.CostProfileReconciler{
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),
 		ScrapeClient: scrapeClient,
 		DCGMEndpoint: dcgmEndpoint,
+		APIStore:     apiStore,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CostProfile")
 		os.Exit(1)
@@ -214,8 +220,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := ctrl.SetupSignalHandler()
+
+	// Start the REST API server if enabled.
+	if apiAddr != "" {
+		apiServer := internalapi.NewServer(apiAddr, apiStore)
+		go func() {
+			if err := apiServer.Start(ctx); err != nil {
+				setupLog.Error(err, "Failed to run API server")
+			}
+		}()
+	}
+
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
