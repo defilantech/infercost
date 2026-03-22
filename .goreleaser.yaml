@@ -1,0 +1,98 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  # CLI binary
+  - id: infercost
+    main: ./cmd/infercost
+    binary: infercost
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/defilantech/infercost/pkg/cli.Version={{.Version}}
+      - -X github.com/defilantech/infercost/pkg/cli.GitCommit={{.Commit}}
+      - -X github.com/defilantech/infercost/pkg/cli.BuildDate={{.Date}}
+
+  # Controller binary (linux only, runs in container)
+  - id: manager
+    main: ./cmd/main.go
+    binary: manager
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: infercost-archive
+    builds:
+      - infercost
+    format: tar.gz
+    name_template: "infercost_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - config/samples/*
+      - config/pricing/*
+
+dockers:
+  - id: controller-amd64
+    ids:
+      - manager
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/defilantech/infercost:{{ .Version }}-amd64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+
+  - id: controller-arm64
+    ids:
+      - manager
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/defilantech/infercost:{{ .Version }}-arm64"
+    dockerfile: Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+
+docker_manifests:
+  - name_template: "ghcr.io/defilantech/infercost:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/defilantech/infercost:{{ .Version }}-amd64"
+      - "ghcr.io/defilantech/infercost:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/defilantech/infercost:latest"
+    image_templates:
+      - "ghcr.io/defilantech/infercost:{{ .Version }}-amd64"
+      - "ghcr.io/defilantech/infercost:{{ .Version }}-arm64"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^chore:"
+      - "^ci:"
+      - "^test:"
+      - "^refactor:"
+      - "^docs:"
