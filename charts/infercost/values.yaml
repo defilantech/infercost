@@ -1,0 +1,125 @@
+# Default values for infercost.
+
+# Namespace to deploy the controller
+namespace: infercost-system
+
+# Controller manager configuration
+controllerManager:
+  image:
+    repository: ghcr.io/defilantech/infercost
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+    # Image digest (sha256:...) - takes precedence over tag when set.
+    digest: ""
+
+  replicaCount: 1
+
+  leaderElection:
+    enabled: true
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - "ALL"
+
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8081
+    initialDelaySeconds: 15
+    periodSeconds: 20
+
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: 8081
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  env: []
+
+# DCGM Exporter configuration
+dcgm:
+  # DCGM exporter metrics endpoint URL.
+  # Set to the DCGM exporter service in your cluster.
+  # If empty, falls back to TDP-based power estimation from CostProfile spec.
+  endpoint: ""
+  # Examples:
+  #   In-cluster: http://nvidia-dcgm-exporter.gpu-operator-resources.svc:9400/metrics
+  #   NodePort:   http://<node-ip>:30940/metrics
+
+# REST API configuration
+api:
+  # Enable the InferCost REST API server
+  enabled: true
+  # Port for the API server
+  port: 8092
+  # Service type for the API
+  service:
+    type: ClusterIP
+    annotations: {}
+
+# Metrics configuration
+metrics:
+  enabled: true
+  secure: false
+  service:
+    type: ClusterIP
+    port: 8090
+    annotations: {}
+    # For external access (e.g. cross-cluster Prometheus scraping):
+    # type: NodePort
+    # nodePort: 30090
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC configuration
+rbac:
+  create: true
+
+# Install CRDs with the chart
+installCRDs: true
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+
+# Override chart name
+nameOverride: ""
+fullnameOverride: ""
+
+# Prometheus monitoring integration
+prometheus:
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    labels: {}

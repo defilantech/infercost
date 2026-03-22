@@ -1,0 +1,64 @@
+InferCost has been installed successfully!
+
+Thank you for installing {{ .Chart.Name }} version {{ .Chart.Version }}.
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }} --namespace {{ include "infercost.namespace" . }}
+  $ helm get all {{ .Release.Name }} --namespace {{ include "infercost.namespace" . }}
+
+---
+GETTING STARTED:
+
+1. Verify the controller is running:
+   kubectl get deployment -n {{ include "infercost.namespace" . }} {{ include "infercost.fullname" . }}-controller-manager
+
+2. Check controller logs:
+   kubectl logs -n {{ include "infercost.namespace" . }} deployment/{{ include "infercost.fullname" . }}-controller-manager -f
+
+3. Create a CostProfile for your GPU hardware:
+   kubectl apply -f - <<EOF
+   apiVersion: finops.infercost.ai/v1alpha1
+   kind: CostProfile
+   metadata:
+     name: my-gpu-cluster
+   spec:
+     hardware:
+       gpuModel: "NVIDIA GeForce RTX 5060 Ti"
+       gpuCount: 2
+       purchasePriceUSD: 960
+       amortizationYears: 3
+     electricity:
+       ratePerKWh: 0.08
+       pueFactor: 1.0
+     nodeSelector:
+       kubernetes.io/hostname: gpu-node-01
+   EOF
+
+4. Check your cost data:
+   kubectl get costprofiles
+
+{{- if .Values.api.enabled }}
+
+5. Access the REST API:
+   kubectl port-forward -n {{ include "infercost.namespace" . }} svc/{{ include "infercost.fullname" . }}-api {{ .Values.api.port }}:{{ .Values.api.port }}
+   curl http://localhost:{{ .Values.api.port }}/api/v1/costs/current
+{{- end }}
+
+{{- if .Values.metrics.enabled }}
+
+6. Prometheus metrics are available at:
+   {{ include "infercost.fullname" . }}-metrics.{{ include "infercost.namespace" . }}.svc:{{ .Values.metrics.service.port }}/metrics
+{{- end }}
+
+---
+DOCUMENTATION:
+
+- Website: https://infercost.ai
+- GitHub: https://github.com/defilantech/infercost
+- Grafana Dashboard: config/grafana/infercost-dashboard.json
+
+---
+Happy cost tracking!

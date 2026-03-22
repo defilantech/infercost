@@ -1,0 +1,22 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "infercost.fullname" . }}-metrics
+  namespace: {{ include "infercost.namespace" . }}
+  labels:
+    {{- include "infercost.labels" . | nindent 4 }}
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.metrics.service.type }}
+  ports:
+  - name: {{ if .Values.metrics.secure }}https{{ else }}http{{ end }}
+    port: {{ .Values.metrics.service.port }}
+    protocol: TCP
+    targetPort: metrics
+  selector:
+    {{- include "infercost.selectorLabels" . | nindent 4 }}
+{{- end }}

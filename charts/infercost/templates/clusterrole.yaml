@@ -1,0 +1,49 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "infercost.fullname" . }}-manager-role
+  labels:
+    {{- include "infercost.labels" . | nindent 4 }}
+rules:
+# Core resources: read pods and nodes for inference discovery
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+# InferCost CRDs: full CRUD for cost profiles and usage reports
+- apiGroups:
+  - finops.infercost.ai
+  resources:
+  - costprofiles
+  - usagereports
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - finops.infercost.ai
+  resources:
+  - costprofiles/finalizers
+  - usagereports/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - finops.infercost.ai
+  resources:
+  - costprofiles/status
+  - usagereports/status
+  verbs:
+  - get
+  - patch
+  - update
+{{- end }}

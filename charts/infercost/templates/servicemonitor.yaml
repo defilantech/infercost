@@ -1,0 +1,31 @@
+{{- if .Values.prometheus.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "infercost.fullname" . }}
+  {{- if .Values.prometheus.serviceMonitor.namespace }}
+  namespace: {{ .Values.prometheus.serviceMonitor.namespace }}
+  {{- else }}
+  namespace: {{ include "infercost.namespace" . }}
+  {{- end }}
+  labels:
+    {{- include "infercost.labels" . | nindent 4 }}
+    {{- with .Values.prometheus.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+    - {{ include "infercost.namespace" . }}
+  selector:
+    matchLabels:
+      {{- include "infercost.selectorLabels" . | nindent 6 }}
+  endpoints:
+  - port: {{ if .Values.metrics.secure }}https{{ else }}http{{ end }}
+    interval: {{ .Values.prometheus.serviceMonitor.interval }}
+    {{- if .Values.metrics.secure }}
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+    {{- end }}
+{{- end }}

@@ -1,0 +1,22 @@
+{{- if .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "infercost.fullname" . }}-api
+  namespace: {{ include "infercost.namespace" . }}
+  labels:
+    {{- include "infercost.labels" . | nindent 4 }}
+  {{- with .Values.api.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.api.service.type }}
+  ports:
+  - name: http
+    port: {{ .Values.api.port }}
+    protocol: TCP
+    targetPort: api
+  selector:
+    {{- include "infercost.selectorLabels" . | nindent 4 }}
+{{- end }}
