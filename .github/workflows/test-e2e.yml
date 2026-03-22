@@ -1,8 +1,12 @@
 name: E2E Tests
 
+# Disabled until Helm chart and real e2e scenarios are implemented.
+# Current scaffold tests require cert-manager and a Docker image build
+# that aren't needed for InferCost's architecture.
+# Re-enable when charts/infercost/ exists and e2e tests cover
+# CostProfile reconciliation and API endpoints.
 on:
-  push:
-  pull_request:
+  workflow_dispatch: # Manual trigger only for now
 
 jobs:
   test-e2e:
@@ -10,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
