@@ -4,7 +4,7 @@ metadata:
   labels:
     app.kubernetes.io/name: infercost
     app.kubernetes.io/managed-by: kustomize
-  name: shadowstack-rtx5060ti
+  name: gpu-cluster-example
 spec:
   hardware:
     gpuModel: "NVIDIA GeForce RTX 5060 Ti"
@@ -14,7 +14,7 @@ spec:
     maintenancePercentPerYear: 0.05
     tdpWatts: 150               # Per GPU TDP, fallback if DCGM unavailable
   electricity:
-    ratePerKWh: 0.08            # Gig Harbor, WA residential rate
-    pueFactor: 1.0              # Home office, no datacenter overhead
+    ratePerKWh: 0.08            # US average residential rate
+    pueFactor: 1.0              # 1.0 for homelabs, 1.2-1.6 for datacenters
   nodeSelector:
-    kubernetes.io/hostname: shadowstack
+    kubernetes.io/hostname: gpu-node-01

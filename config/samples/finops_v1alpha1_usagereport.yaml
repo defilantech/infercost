@@ -4,7 +4,7 @@ metadata:
   labels:
     app.kubernetes.io/name: infercost
     app.kubernetes.io/managed-by: kustomize
-  name: shadowstack-daily
+  name: daily-report
 spec:
-  costProfileRef: shadowstack-rtx5060ti
+  costProfileRef: gpu-cluster-example
   schedule: daily
