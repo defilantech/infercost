@@ -91,7 +91,7 @@ checksum:
 brews:
   - name: infercost
     ids:
-      - infercost
+      - infercost-archive
     repository:
       owner: defilantech
       name: homebrew-tap
