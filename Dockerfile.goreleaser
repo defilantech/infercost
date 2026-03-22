@@ -1,4 +1,7 @@
 FROM gcr.io/distroless/static:nonroot
+LABEL org.opencontainers.image.source="https://github.com/defilantech/infercost"
+LABEL org.opencontainers.image.description="InferCost controller - cost intelligence for on-prem AI inference"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /
 COPY manager /manager
 USER 65532:65532
