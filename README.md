@@ -8,7 +8,7 @@
 
 [![Tests](https://github.com/defilantech/infercost/actions/workflows/test.yml/badge.svg)](https://github.com/defilantech/infercost/actions/workflows/test.yml)
 [![Lint](https://github.com/defilantech/infercost/actions/workflows/lint.yml/badge.svg)](https://github.com/defilantech/infercost/actions/workflows/lint.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/defilantech/infercost)](https://goreportcard.com/report/github.com/defilantech/infercost)
+[![Go Report Card](https://goreportcard.com/badge/github.com/defilantech/infercost?v=1)](https://goreportcard.com/report/github.com/defilantech/infercost)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 InferCost is a Kubernetes-native platform that makes on-premises AI inference costs fully attributable, from GPU hardware amortization through electricity to per-request token economics. It bridges the gap between infrastructure cost tools and AI observability platforms, combining hardware economics with token-level attribution in a way that neither category covers alone.
