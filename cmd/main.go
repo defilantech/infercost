@@ -203,10 +203,21 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.UsageReportReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		ScrapeClient: scrapeClient,
+		DCGMEndpoint: dcgmEndpoint,
+		APIStore:     apiStore,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "UsageReport")
+		os.Exit(1)
+	}
+	if err := (&controller.TokenBudgetReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		APIStore: apiStore,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "TokenBudget")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

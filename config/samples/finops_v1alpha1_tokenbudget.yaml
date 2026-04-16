@@ -1,0 +1,17 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: TokenBudget
+metadata:
+  labels:
+    app.kubernetes.io/name: infercost
+    app.kubernetes.io/managed-by: kustomize
+  name: engineering-budget
+  namespace: default
+spec:
+  scope:
+    namespace: default
+  monthlyLimitUSD: 500
+  alertThresholds:
+    - percent: 80
+      severity: warning
+    - percent: 100
+      severity: critical

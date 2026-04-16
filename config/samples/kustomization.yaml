@@ -2,4 +2,5 @@
 resources:
 - finops_v1alpha1_costprofile.yaml
 - finops_v1alpha1_usagereport.yaml
+- finops_v1alpha1_tokenbudget.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

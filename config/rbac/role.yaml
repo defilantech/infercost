@@ -17,6 +17,7 @@ rules:
   - finops.infercost.ai
   resources:
   - costprofiles
+  - tokenbudgets
   - usagereports
   verbs:
   - create
@@ -30,6 +31,7 @@ rules:
   - finops.infercost.ai
   resources:
   - costprofiles/finalizers
+  - tokenbudgets/finalizers
   - usagereports/finalizers
   verbs:
   - update
@@ -37,8 +39,21 @@ rules:
   - finops.infercost.ai
   resources:
   - costprofiles/status
+  - tokenbudgets/status
   - usagereports/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - prometheusrules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

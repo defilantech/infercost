@@ -32,8 +32,10 @@ func NewServer(addr string, store *Store) *Server {
 	}
 
 	mux.HandleFunc("GET /api/v1/costs/current", s.handleCostsCurrent)
+	mux.HandleFunc("GET /api/v1/costs/by-namespace", s.handleCostsByNamespace)
 	mux.HandleFunc("GET /api/v1/models", s.handleModels)
 	mux.HandleFunc("GET /api/v1/compare", s.handleCompare)
+	mux.HandleFunc("GET /api/v1/budgets", s.handleBudgets)
 	mux.HandleFunc("GET /api/v1/status", s.handleStatus)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 
@@ -71,6 +73,26 @@ func (s *Server) handleCostsCurrent(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, data)
 }
 
+func (s *Server) handleCostsByNamespace(w http.ResponseWriter, r *http.Request) {
+	costs := s.store.GetNamespaceCosts()
+
+	// Filter by namespace query parameter if provided.
+	if nsFilter := r.URL.Query().Get("namespace"); nsFilter != "" {
+		var filtered []NamespaceCostData
+		for _, c := range costs {
+			if c.Namespace == nsFilter {
+				filtered = append(filtered, c)
+			}
+		}
+		costs = filtered
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"namespaceCosts": costs,
+		"count":          len(costs),
+	})
+}
+
 func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
 	models := s.store.GetModels()
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -100,6 +122,14 @@ func (s *Server) handleCompare(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleBudgets(w http.ResponseWriter, _ *http.Request) {
+	budgets := s.store.GetBudgets()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"budgets": budgets,
+		"count":   len(budgets),
+	})
 }
 
 // handleStatus returns a combined view — costs, models, and top-level comparison.

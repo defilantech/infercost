@@ -18,66 +18,340 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
+	internalapi "github.com/defilantech/infercost/internal/api"
+	"github.com/defilantech/infercost/internal/scraper"
 )
 
 var _ = Describe("UsageReport Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-usagereport"
+	Context("When reconciling with a valid CostProfile", func() {
+		const (
+			reportName      = "test-usagereport"
+			costProfileName = "test-costprofile-for-report"
+		)
 
 		ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
+		reportKey := types.NamespacedName{
+			Name:      reportName,
 			Namespace: "default",
 		}
-		usagereport := &finopsv1alpha1.UsageReport{}
+		profileKey := types.NamespacedName{
+			Name:      costProfileName,
+			Namespace: "default",
+		}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind UsageReport")
-			err := k8sClient.Get(ctx, typeNamespacedName, usagereport)
+			By("creating the CostProfile that the UsageReport references")
+			profile := &finopsv1alpha1.CostProfile{}
+			err := k8sClient.Get(ctx, profileKey, profile)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &finopsv1alpha1.UsageReport{
+				tdp := int32(150)
+				profile = &finopsv1alpha1.CostProfile{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
+						Name:      costProfileName,
+						Namespace: "default",
+					},
+					Spec: finopsv1alpha1.CostProfileSpec{
+						Hardware: finopsv1alpha1.HardwareSpec{
+							GPUModel:          "NVIDIA GeForce RTX 5060 Ti",
+							GPUCount:          2,
+							PurchasePriceUSD:  960,
+							AmortizationYears: 3,
+							TDPWatts:          &tdp,
+						},
+						Electricity: finopsv1alpha1.ElectricitySpec{
+							RatePerKWh: 0.08,
+							PUEFactor:  1.0,
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, profile)).To(Succeed())
+			}
+
+			By("setting hourlyCostUSD on the CostProfile status")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, profileKey, profile); err != nil {
+					return err
+				}
+				now := metav1.Now()
+				profile.Status.HourlyCostUSD = 0.06
+				profile.Status.LastUpdated = &now
+				return k8sClient.Status().Update(ctx, profile)
+			}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+
+			By("creating the UsageReport")
+			report := &finopsv1alpha1.UsageReport{}
+			err = k8sClient.Get(ctx, reportKey, report)
+			if err != nil && errors.IsNotFound(err) {
+				report = &finopsv1alpha1.UsageReport{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      reportName,
 						Namespace: "default",
 					},
 					Spec: finopsv1alpha1.UsageReportSpec{
-						CostProfileRef: "test-costprofile",
+						CostProfileRef: costProfileName,
 						Schedule:       finopsv1alpha1.ReportScheduleDaily,
 					},
 				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+				Expect(k8sClient.Create(ctx, report)).To(Succeed())
 			}
 		})
 
 		AfterEach(func() {
-			resource := &finopsv1alpha1.UsageReport{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance UsageReport")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &UsageReportReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+			By("cleaning up the UsageReport")
+			report := &finopsv1alpha1.UsageReport{}
+			if err := k8sClient.Get(ctx, reportKey, report); err == nil {
+				Expect(k8sClient.Delete(ctx, report)).To(Succeed())
 			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+			By("cleaning up the CostProfile")
+			profile := &finopsv1alpha1.CostProfile{}
+			if err := k8sClient.Get(ctx, profileKey, profile); err == nil {
+				Expect(k8sClient.Delete(ctx, profile)).To(Succeed())
+			}
+		})
+
+		It("should reconcile and populate status fields", func() {
+			apiStore := internalapi.NewStore()
+			reconciler := &UsageReportReconciler{
+				Client:       k8sClient,
+				Scheme:       k8sClient.Scheme(),
+				ScrapeClient: scraper.NewClient(5 * time.Second),
+				APIStore:     apiStore,
+			}
+
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: reportKey,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Minute))
+
+			By("verifying the status was updated")
+			updated := &finopsv1alpha1.UsageReport{}
+			Expect(k8sClient.Get(ctx, reportKey, updated)).To(Succeed())
+			Expect(updated.Status.Period).NotTo(BeEmpty())
+			Expect(updated.Status.PeriodStart).NotTo(BeNil())
+			Expect(updated.Status.PeriodEnd).NotTo(BeNil())
+			Expect(updated.Status.LastUpdated).NotTo(BeNil())
+			// Cost should be > 0 since hourlyCostUSD is 0.06 and hoursInPeriod > 0
+			Expect(updated.Status.EstimatedCostUSD).To(BeNumerically(">", 0))
+
+			By("verifying the Ready condition is set")
+			Expect(updated.Status.Conditions).NotTo(BeEmpty())
+			var readyCondition *metav1.Condition
+			for i := range updated.Status.Conditions {
+				if updated.Status.Conditions[i].Type == "Ready" {
+					readyCondition = &updated.Status.Conditions[i]
+					break
+				}
+			}
+			Expect(readyCondition).NotTo(BeNil())
+			Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(readyCondition.Reason).To(Equal("ReportComputed"))
+		})
+	})
+
+	Context("When the referenced CostProfile does not exist", func() {
+		const reportName = "test-usagereport-missing-profile"
+
+		ctx := context.Background()
+
+		reportKey := types.NamespacedName{
+			Name:      reportName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			By("creating a UsageReport referencing a nonexistent CostProfile")
+			report := &finopsv1alpha1.UsageReport{}
+			err := k8sClient.Get(ctx, reportKey, report)
+			if err != nil && errors.IsNotFound(err) {
+				report = &finopsv1alpha1.UsageReport{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      reportName,
+						Namespace: "default",
+					},
+					Spec: finopsv1alpha1.UsageReportSpec{
+						CostProfileRef: "nonexistent-costprofile",
+						Schedule:       finopsv1alpha1.ReportScheduleDaily,
+					},
+				}
+				Expect(k8sClient.Create(ctx, report)).To(Succeed())
+			}
+		})
+
+		AfterEach(func() {
+			report := &finopsv1alpha1.UsageReport{}
+			if err := k8sClient.Get(ctx, reportKey, report); err == nil {
+				Expect(k8sClient.Delete(ctx, report)).To(Succeed())
+			}
+		})
+
+		It("should set an error condition on the UsageReport", func() {
+			reconciler := &UsageReportReconciler{
+				Client:       k8sClient,
+				Scheme:       k8sClient.Scheme(),
+				ScrapeClient: scraper.NewClient(5 * time.Second),
+			}
+
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: reportKey,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Minute))
+
+			By("verifying the error condition is set")
+			updated := &finopsv1alpha1.UsageReport{}
+			Expect(k8sClient.Get(ctx, reportKey, updated)).To(Succeed())
+			Expect(updated.Status.Conditions).NotTo(BeEmpty())
+
+			var readyCondition *metav1.Condition
+			for i := range updated.Status.Conditions {
+				if updated.Status.Conditions[i].Type == "Ready" {
+					readyCondition = &updated.Status.Conditions[i]
+					break
+				}
+			}
+			Expect(readyCondition).NotTo(BeNil())
+			Expect(readyCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(readyCondition.Reason).To(Equal("CostProfileNotFound"))
+		})
+	})
+
+	Context("When namespace filtering is configured", func() {
+		const (
+			reportName      = "test-usagereport-ns-filter"
+			costProfileName = "test-costprofile-ns-filter"
+		)
+
+		ctx := context.Background()
+
+		reportKey := types.NamespacedName{
+			Name:      reportName,
+			Namespace: "default",
+		}
+		profileKey := types.NamespacedName{
+			Name:      costProfileName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			By("creating the CostProfile")
+			profile := &finopsv1alpha1.CostProfile{}
+			err := k8sClient.Get(ctx, profileKey, profile)
+			if err != nil && errors.IsNotFound(err) {
+				tdp := int32(150)
+				profile = &finopsv1alpha1.CostProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      costProfileName,
+						Namespace: "default",
+					},
+					Spec: finopsv1alpha1.CostProfileSpec{
+						Hardware: finopsv1alpha1.HardwareSpec{
+							GPUModel:          "NVIDIA GeForce RTX 5060 Ti",
+							GPUCount:          1,
+							PurchasePriceUSD:  480,
+							AmortizationYears: 3,
+							TDPWatts:          &tdp,
+						},
+						Electricity: finopsv1alpha1.ElectricitySpec{
+							RatePerKWh: 0.08,
+							PUEFactor:  1.0,
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, profile)).To(Succeed())
+			}
+
+			By("setting hourlyCostUSD on the CostProfile status")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, profileKey, profile); err != nil {
+					return err
+				}
+				now := metav1.Now()
+				profile.Status.HourlyCostUSD = 0.03
+				profile.Status.LastUpdated = &now
+				return k8sClient.Status().Update(ctx, profile)
+			}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+
+			By("creating the UsageReport with namespace filter")
+			report := &finopsv1alpha1.UsageReport{}
+			err = k8sClient.Get(ctx, reportKey, report)
+			if err != nil && errors.IsNotFound(err) {
+				report = &finopsv1alpha1.UsageReport{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      reportName,
+						Namespace: "default",
+					},
+					Spec: finopsv1alpha1.UsageReportSpec{
+						CostProfileRef: costProfileName,
+						Schedule:       finopsv1alpha1.ReportScheduleWeekly,
+						Namespaces:     []string{"team-a", "team-b"},
+					},
+				}
+				Expect(k8sClient.Create(ctx, report)).To(Succeed())
+			}
+		})
+
+		AfterEach(func() {
+			report := &finopsv1alpha1.UsageReport{}
+			if err := k8sClient.Get(ctx, reportKey, report); err == nil {
+				Expect(k8sClient.Delete(ctx, report)).To(Succeed())
+			}
+			profile := &finopsv1alpha1.CostProfile{}
+			if err := k8sClient.Get(ctx, profileKey, profile); err == nil {
+				Expect(k8sClient.Delete(ctx, profile)).To(Succeed())
+			}
+		})
+
+		It("should reconcile successfully with namespace filtering", func() {
+			reconciler := &UsageReportReconciler{
+				Client:       k8sClient,
+				Scheme:       k8sClient.Scheme(),
+				ScrapeClient: scraper.NewClient(5 * time.Second),
+			}
+
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: reportKey,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Minute))
+
+			By("verifying the status was updated with weekly period")
+			updated := &finopsv1alpha1.UsageReport{}
+			Expect(k8sClient.Get(ctx, reportKey, updated)).To(Succeed())
+			Expect(updated.Status.Period).To(MatchRegexp(`^\d{4}-W\d{2}$`))
+			Expect(updated.Status.PeriodStart).NotTo(BeNil())
+
+			By("verifying no namespace breakdowns since no pods exist in team-a or team-b")
+			Expect(updated.Status.ByNamespace).To(BeEmpty())
+			Expect(updated.Status.ByModel).To(BeEmpty())
+		})
+	})
+
+	Context("When the UsageReport does not exist", func() {
+		It("should handle not-found gracefully", func() {
+			reconciler := &UsageReportReconciler{
+				Client:       k8sClient,
+				Scheme:       k8sClient.Scheme(),
+				ScrapeClient: scraper.NewClient(5 * time.Second),
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "nonexistent",
+					Namespace: "default",
+				},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		})
