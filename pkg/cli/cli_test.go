@@ -5,7 +5,11 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+const flagDefaultFalse = "false"
 
 func TestFormatTokenCount(t *testing.T) {
 	tests := []struct {
@@ -90,6 +94,8 @@ func TestNewRootCommand_SubcommandTree(t *testing.T) {
 	expected := map[string]bool{
 		"status":  false,
 		"compare": false,
+		"budget":  false,
+		"users":   false,
 		"version": false,
 	}
 
@@ -243,8 +249,8 @@ func TestNewStatusCommand_Flags(t *testing.T) {
 	if allNsFlag.Shorthand != "A" {
 		t.Errorf("all-namespaces shorthand = %q, want %q", allNsFlag.Shorthand, "A")
 	}
-	if allNsFlag.DefValue != "false" {
-		t.Errorf("all-namespaces default = %q, want %q", allNsFlag.DefValue, "false")
+	if allNsFlag.DefValue != flagDefaultFalse {
+		t.Errorf("all-namespaces default = %q, want %q", allNsFlag.DefValue, flagDefaultFalse)
 	}
 }
 
@@ -280,8 +286,8 @@ func TestNewCompareCommand_Flags(t *testing.T) {
 	if monthlyFlag == nil {
 		t.Fatal("expected --monthly flag to exist")
 	}
-	if monthlyFlag.DefValue != "false" {
-		t.Errorf("monthly default = %q, want %q", monthlyFlag.DefValue, "false")
+	if monthlyFlag.DefValue != flagDefaultFalse {
+		t.Errorf("monthly default = %q, want %q", monthlyFlag.DefValue, flagDefaultFalse)
 	}
 }
 
@@ -290,6 +296,231 @@ func TestNewCompareCommand_HasRunE(t *testing.T) {
 	if cmd.RunE == nil {
 		t.Error("compare command should have RunE set")
 	}
+}
+
+func TestNewBudgetCommand_HasRunE(t *testing.T) {
+	cmd := NewBudgetCommand()
+	if cmd.RunE == nil {
+		t.Error("budget command should have RunE set")
+	}
+}
+
+func TestNewBudgetCommand_Flags(t *testing.T) {
+	cmd := NewBudgetCommand()
+
+	if cmd.Use != "budget" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "budget")
+	}
+	if cmd.Short != "List TokenBudget resources and spend status" {
+		t.Errorf("Short = %q, want %q", cmd.Short, "List TokenBudget resources and spend status")
+	}
+
+	nsFlag := cmd.Flags().Lookup("namespace")
+	if nsFlag == nil {
+		t.Fatal("expected --namespace flag to exist")
+	}
+	if nsFlag.Shorthand != "n" {
+		t.Errorf("namespace shorthand = %q, want %q", nsFlag.Shorthand, "n")
+	}
+	if nsFlag.DefValue != "" {
+		t.Errorf("namespace default = %q, want empty string", nsFlag.DefValue)
+	}
+
+	allNsFlag := cmd.Flags().Lookup("all-namespaces")
+	if allNsFlag == nil {
+		t.Fatal("expected --all-namespaces flag to exist")
+	}
+	if allNsFlag.Shorthand != "A" {
+		t.Errorf("all-namespaces shorthand = %q, want %q", allNsFlag.Shorthand, "A")
+	}
+	if allNsFlag.DefValue != flagDefaultFalse {
+		t.Errorf("all-namespaces default = %q, want %q", allNsFlag.DefValue, flagDefaultFalse)
+	}
+}
+
+func TestNewUsersCommand_HasRunE(t *testing.T) {
+	cmd := NewUsersCommand()
+	if cmd.RunE == nil {
+		t.Error("users command should have RunE set")
+	}
+}
+
+func TestNewUsersCommand_Flags(t *testing.T) {
+	cmd := NewUsersCommand()
+
+	if cmd.Use != "users" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "users")
+	}
+	if cmd.Short != "Show per-user inference cost attribution" {
+		t.Errorf("Short = %q, want %q", cmd.Short, "Show per-user inference cost attribution")
+	}
+
+	nsFlag := cmd.Flags().Lookup("namespace")
+	if nsFlag == nil {
+		t.Fatal("expected --namespace flag to exist")
+	}
+	if nsFlag.Shorthand != "n" {
+		t.Errorf("namespace shorthand = %q, want %q", nsFlag.Shorthand, "n")
+	}
+
+	topFlag := cmd.Flags().Lookup("top")
+	if topFlag == nil {
+		t.Fatal("expected --top flag to exist")
+	}
+	if topFlag.DefValue != "10" {
+		t.Errorf("top default = %q, want %q", topFlag.DefValue, "10")
+	}
+}
+
+func TestUsersCommand_Output(t *testing.T) {
+	cmd := NewRootCommand()
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	os.Stdout = w
+
+	cmd.SetArgs([]string{"users"})
+	if err := cmd.Execute(); err != nil {
+		os.Stdout = origStdout
+		t.Fatalf("users command returned error: %v", err)
+	}
+
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	var captured bytes.Buffer
+	if _, err := captured.ReadFrom(r); err != nil {
+		t.Fatalf("failed to read captured output: %v", err)
+	}
+
+	output := captured.String()
+	if !contains(output, "LiteLLM integration") {
+		t.Errorf("expected output to mention LiteLLM integration, got: %q", output)
+	}
+	if !contains(output, "infercost.ai/docs/litellm") {
+		t.Errorf("expected output to contain docs URL, got: %q", output)
+	}
+}
+
+func TestBudgetCommand_HelpDoesNotError(t *testing.T) {
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{"budget", "--help"})
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("budget --help should not error: %v", err)
+	}
+}
+
+func TestUsersCommand_HelpDoesNotError(t *testing.T) {
+	cmd := NewRootCommand()
+	cmd.SetArgs([]string{"users", "--help"})
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("users --help should not error: %v", err)
+	}
+}
+
+func TestBudgetStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		conditions []any
+		want       string
+	}{
+		{
+			name:       "no conditions",
+			conditions: nil,
+			want:       "OK",
+		},
+		{
+			name: "warning condition true",
+			conditions: []any{
+				map[string]any{
+					"type":   "BudgetWarning",
+					"status": "True",
+				},
+			},
+			want: "Warning",
+		},
+		{
+			name: "exceeded condition true",
+			conditions: []any{
+				map[string]any{
+					"type":   "BudgetExceeded",
+					"status": "True",
+				},
+			},
+			want: "Exceeded",
+		},
+		{
+			name: "exceeded takes priority over warning",
+			conditions: []any{
+				map[string]any{
+					"type":   "BudgetWarning",
+					"status": "True",
+				},
+				map[string]any{
+					"type":   "BudgetExceeded",
+					"status": "True",
+				},
+			},
+			want: "Exceeded",
+		},
+		{
+			name: "warning condition false",
+			conditions: []any{
+				map[string]any{
+					"type":   "BudgetWarning",
+					"status": "False",
+				},
+			},
+			want: "OK",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &unstructured.Unstructured{
+				Object: map[string]any{
+					"metadata": map[string]any{
+						"name":      "test-budget",
+						"namespace": "default",
+					},
+				},
+			}
+			if tt.conditions != nil {
+				obj.Object["status"] = map[string]any{
+					"conditions": tt.conditions,
+				}
+			}
+
+			got := budgetStatus(obj)
+			if got != tt.want {
+				t.Errorf("budgetStatus() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
+}
+
+func containsSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestNewK8sClient_NoKubeconfig(t *testing.T) {

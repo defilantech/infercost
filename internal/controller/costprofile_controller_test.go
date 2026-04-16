@@ -35,6 +35,7 @@ import (
 var _ = Describe("CostProfile Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-costprofile"
+		const conditionTypeReady = "Ready"
 
 		ctx := context.Background()
 
@@ -113,7 +114,7 @@ var _ = Describe("CostProfile Controller", func() {
 			Expect(updated.Status.Conditions).NotTo(BeEmpty())
 			var readyCondition *metav1.Condition
 			for i := range updated.Status.Conditions {
-				if updated.Status.Conditions[i].Type == "Ready" {
+				if updated.Status.Conditions[i].Type == conditionTypeReady {
 					readyCondition = &updated.Status.Conditions[i]
 					break
 				}

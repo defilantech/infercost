@@ -21,6 +21,8 @@ with LLMKube, llama.cpp, and vLLM.`,
 
 	cmd.AddCommand(NewStatusCommand())
 	cmd.AddCommand(NewCompareCommand())
+	cmd.AddCommand(NewBudgetCommand())
+	cmd.AddCommand(NewUsersCommand())
 	cmd.AddCommand(NewVersionCommand())
 
 	return cmd

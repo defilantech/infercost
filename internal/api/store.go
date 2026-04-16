@@ -44,6 +44,14 @@ type ModelData struct {
 	IsActive      bool    `json:"isActive"`
 }
 
+// NamespaceCostData holds per-namespace cost attribution.
+type NamespaceCostData struct {
+	Namespace        string   `json:"namespace"`
+	EstimatedCostUSD float64  `json:"estimatedCostUSD"`
+	TokenCount       int64    `json:"tokenCount"`
+	Models           []string `json:"models"`
+}
+
 // ComparisonData holds cloud comparison results.
 type ComparisonData struct {
 	Provider       string  `json:"provider"`
@@ -56,12 +64,24 @@ type ComparisonData struct {
 	OutputPerMTok  float64 `json:"outputPerMillionTokensUSD"`
 }
 
+// BudgetData holds the latest budget state for a TokenBudget CR.
+type BudgetData struct {
+	Name               string  `json:"name"`
+	Namespace          string  `json:"namespace"`
+	MonthlyLimitUSD    float64 `json:"monthlyLimitUSD"`
+	CurrentSpendUSD    float64 `json:"currentSpendUSD"`
+	UtilizationPercent float64 `json:"utilizationPercent"`
+	Status             string  `json:"status"` // "ok", "warning", "exceeded"
+}
+
 // Store is a thread-safe data store populated by the controller and read by the API.
 type Store struct {
-	mu          sync.RWMutex
-	cost        *CostData
-	models      []ModelData
-	comparisons []ComparisonData
+	mu             sync.RWMutex
+	cost           *CostData
+	models         []ModelData
+	comparisons    []ComparisonData
+	namespaceCosts []NamespaceCostData
+	budgets        []BudgetData
 }
 
 // NewStore creates an empty store.
@@ -112,6 +132,38 @@ func (s *Store) GetComparisons() []ComparisonData {
 	defer s.mu.RUnlock()
 	result := make([]ComparisonData, len(s.comparisons))
 	copy(result, s.comparisons)
+	return result
+}
+
+// SetNamespaceCosts updates the per-namespace cost data.
+func (s *Store) SetNamespaceCosts(costs []NamespaceCostData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.namespaceCosts = costs
+}
+
+// GetNamespaceCosts returns the latest per-namespace cost data.
+func (s *Store) GetNamespaceCosts() []NamespaceCostData {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]NamespaceCostData, len(s.namespaceCosts))
+	copy(result, s.namespaceCosts)
+	return result
+}
+
+// SetBudgets updates the budget data.
+func (s *Store) SetBudgets(budgets []BudgetData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.budgets = budgets
+}
+
+// GetBudgets returns the latest budget data.
+func (s *Store) GetBudgets() []BudgetData {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]BudgetData, len(s.budgets))
+	copy(result, s.budgets)
 	return result
 }
 

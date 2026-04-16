@@ -125,6 +125,36 @@ var (
 		},
 		[]string{"model", "namespace"},
 	)
+
+	// BudgetLimitUSD is the configured monthly budget limit.
+	BudgetLimitUSD = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "infercost",
+			Name:      "budget_limit_usd",
+			Help:      "Configured monthly budget limit in USD.",
+		},
+		[]string{"namespace", "budget_name"},
+	)
+
+	// BudgetCurrentSpendUSD is the current month spend against budget.
+	BudgetCurrentSpendUSD = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "infercost",
+			Name:      "budget_current_spend_usd",
+			Help:      "Current month spend against budget in USD.",
+		},
+		[]string{"namespace", "budget_name"},
+	)
+
+	// BudgetUtilizationPercent is the budget utilization as percentage.
+	BudgetUtilizationPercent = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "infercost",
+			Name:      "budget_utilization_percent",
+			Help:      "Budget utilization as percentage (spend/limit * 100).",
+		},
+		[]string{"namespace", "budget_name"},
+	)
 )
 
 func init() {
@@ -141,5 +171,8 @@ func init() {
 		TokensTotal,
 		GPUEfficiencyRatio,
 		TokensPerHour,
+		BudgetLimitUSD,
+		BudgetCurrentSpendUSD,
+		BudgetUtilizationPercent,
 	)
 }
