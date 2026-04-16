@@ -17,7 +17,10 @@ import (
 	"github.com/defilantech/infercost/internal/scraper"
 )
 
-const modelLabel = "inference.llmkube.dev/model"
+const (
+	modelLabel             = "inference.llmkube.dev/model"
+	sourceInferenceService = "inferenceservice"
+)
 
 type statusOptions struct {
 	namespace     string
@@ -147,7 +150,7 @@ func runStatus(opts *statusOptions) error {
 
 		// Use proxy client for pods, direct client for InferenceService endpoints.
 		sc := scrapeClient
-		if m.Source == "inferenceservice" {
+		if m.Source == sourceInferenceService {
 			sc = directClient
 		}
 

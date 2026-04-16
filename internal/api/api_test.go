@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const testModifiedValue = "modified"
+
 func TestStore_CostData(t *testing.T) {
 	s := NewStore()
 
@@ -59,9 +61,9 @@ func TestStore_Models(t *testing.T) {
 	}
 
 	// Verify returned slice is a copy (not aliased).
-	got[0].Model = "modified"
+	got[0].Model = testModifiedValue
 	original := s.GetModels()
-	if original[0].Model == "modified" {
+	if original[0].Model == testModifiedValue {
 		t.Error("GetModels returned aliased slice, not a copy")
 	}
 }
@@ -237,9 +239,9 @@ func TestStore_NamespaceCosts(t *testing.T) {
 	}
 
 	// Verify returned slice is a copy (not aliased).
-	got[0].Namespace = "modified"
+	got[0].Namespace = testModifiedValue
 	original := s.GetNamespaceCosts()
-	if original[0].Namespace == "modified" {
+	if original[0].Namespace == testModifiedValue {
 		t.Error("GetNamespaceCosts returned aliased slice, not a copy")
 	}
 }
@@ -374,9 +376,9 @@ func TestStore_Budgets(t *testing.T) {
 	}
 
 	// Verify returned slice is a copy (not aliased).
-	got[0].Name = "modified"
+	got[0].Name = testModifiedValue
 	original := s.GetBudgets()
-	if original[0].Name == "modified" {
+	if original[0].Name == testModifiedValue {
 		t.Error("GetBudgets returned aliased slice, not a copy")
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+const flagDefaultFalse = "false"
+
 func TestFormatTokenCount(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -247,8 +249,8 @@ func TestNewStatusCommand_Flags(t *testing.T) {
 	if allNsFlag.Shorthand != "A" {
 		t.Errorf("all-namespaces shorthand = %q, want %q", allNsFlag.Shorthand, "A")
 	}
-	if allNsFlag.DefValue != "false" {
-		t.Errorf("all-namespaces default = %q, want %q", allNsFlag.DefValue, "false")
+	if allNsFlag.DefValue != flagDefaultFalse {
+		t.Errorf("all-namespaces default = %q, want %q", allNsFlag.DefValue, flagDefaultFalse)
 	}
 }
 
@@ -284,8 +286,8 @@ func TestNewCompareCommand_Flags(t *testing.T) {
 	if monthlyFlag == nil {
 		t.Fatal("expected --monthly flag to exist")
 	}
-	if monthlyFlag.DefValue != "false" {
-		t.Errorf("monthly default = %q, want %q", monthlyFlag.DefValue, "false")
+	if monthlyFlag.DefValue != flagDefaultFalse {
+		t.Errorf("monthly default = %q, want %q", monthlyFlag.DefValue, flagDefaultFalse)
 	}
 }
 
@@ -331,8 +333,8 @@ func TestNewBudgetCommand_Flags(t *testing.T) {
 	if allNsFlag.Shorthand != "A" {
 		t.Errorf("all-namespaces shorthand = %q, want %q", allNsFlag.Shorthand, "A")
 	}
-	if allNsFlag.DefValue != "false" {
-		t.Errorf("all-namespaces default = %q, want %q", allNsFlag.DefValue, "false")
+	if allNsFlag.DefValue != flagDefaultFalse {
+		t.Errorf("all-namespaces default = %q, want %q", allNsFlag.DefValue, flagDefaultFalse)
 	}
 }
 

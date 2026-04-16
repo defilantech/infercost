@@ -119,7 +119,8 @@ func discoverModelsFromInferenceServices(
 		// from outside the cluster. Resolve the actual backing IP via the
 		// K8s Endpoints object.
 		if k8sClient != nil {
-			if resolved, err := resolveEndpointIP(ctx, k8sClient, obj.GetName(), obj.GetNamespace()); err == nil && resolved != "" {
+			resolved, err := resolveEndpointIP(ctx, k8sClient, obj.GetName(), obj.GetNamespace())
+			if err == nil && resolved != "" {
 				m.MetricsURL = resolved
 			}
 		}
@@ -158,7 +159,7 @@ func inferenceServiceToModel(obj *unstructured.Unstructured, knownModels map[str
 	return DiscoveredModel{
 		Name:        modelRef,
 		Namespace:   ns,
-		Source:      "inferenceservice",
+		Source:      sourceInferenceService,
 		SourceName:  fmt.Sprintf("isvc/%s", obj.GetName()),
 		MetricsURL:  metricsURL,
 		Phase:       phase,

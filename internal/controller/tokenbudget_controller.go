@@ -40,6 +40,9 @@ import (
 const (
 	// How often to re-evaluate budgets.
 	budgetReconcileInterval = 1 * time.Minute
+
+	severityCritical = "critical"
+	severityWarning  = "warning"
 )
 
 // TokenBudgetReconciler reconciles a TokenBudget object.
@@ -145,17 +148,17 @@ func (r *TokenBudgetReconciler) evaluateConditions(budget *finopsv1alpha1.TokenB
 	var highestSeverity string
 	for _, threshold := range budget.Spec.AlertThresholds {
 		if utilization >= float64(threshold.Percent) {
-			if threshold.Severity == "critical" {
-				highestSeverity = "critical"
-			} else if highestSeverity != "critical" {
-				highestSeverity = "warning"
+			if threshold.Severity == severityCritical {
+				highestSeverity = severityCritical
+			} else if highestSeverity != severityCritical {
+				highestSeverity = severityWarning
 			}
 		}
 	}
 
 	// Clear previous conditions by setting all to False, then set the active one to True.
 	switch highestSeverity {
-	case "critical":
+	case severityCritical:
 		meta.SetStatusCondition(&budget.Status.Conditions, metav1.Condition{
 			Type:               "BudgetOK",
 			Status:             metav1.ConditionFalse,
@@ -179,7 +182,7 @@ func (r *TokenBudgetReconciler) evaluateConditions(budget *finopsv1alpha1.TokenB
 		})
 		return "exceeded"
 
-	case "warning":
+	case severityWarning:
 		meta.SetStatusCondition(&budget.Status.Conditions, metav1.Condition{
 			Type:               "BudgetOK",
 			Status:             metav1.ConditionFalse,
@@ -244,7 +247,7 @@ func (r *TokenBudgetReconciler) reconcilePrometheusRule(ctx context.Context, bud
 	var rules []any
 	for _, threshold := range budget.Spec.AlertThresholds {
 		var forDuration string
-		if threshold.Severity == "critical" {
+		if threshold.Severity == severityCritical {
 			forDuration = "1m"
 		} else {
 			forDuration = "5m"

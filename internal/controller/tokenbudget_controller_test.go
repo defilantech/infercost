@@ -31,6 +31,8 @@ import (
 	internalapi "github.com/defilantech/infercost/internal/api"
 )
 
+const conditionTypeBudgetOK = "BudgetOK"
+
 var _ = Describe("TokenBudget Controller", func() {
 	Context("When reconciling with no matching namespace spend data", func() {
 		const budgetName = "test-budget-no-spend"
@@ -100,7 +102,7 @@ var _ = Describe("TokenBudget Controller", func() {
 			By("verifying the BudgetOK condition is True")
 			var budgetOK *metav1.Condition
 			for i := range updated.Status.Conditions {
-				if updated.Status.Conditions[i].Type == "BudgetOK" {
+				if updated.Status.Conditions[i].Type == conditionTypeBudgetOK {
 					budgetOK = &updated.Status.Conditions[i]
 					break
 				}
@@ -186,7 +188,7 @@ var _ = Describe("TokenBudget Controller", func() {
 			By("verifying the BudgetOK condition is True")
 			var budgetOK *metav1.Condition
 			for i := range updated.Status.Conditions {
-				if updated.Status.Conditions[i].Type == "BudgetOK" {
+				if updated.Status.Conditions[i].Type == conditionTypeBudgetOK {
 					budgetOK = &updated.Status.Conditions[i]
 					break
 				}
@@ -284,7 +286,7 @@ var _ = Describe("TokenBudget Controller", func() {
 			By("verifying BudgetOK is False")
 			var budgetOK *metav1.Condition
 			for i := range updated.Status.Conditions {
-				if updated.Status.Conditions[i].Type == "BudgetOK" {
+				if updated.Status.Conditions[i].Type == conditionTypeBudgetOK {
 					budgetOK = &updated.Status.Conditions[i]
 					break
 				}
@@ -403,7 +405,7 @@ var _ = Describe("TokenBudget Controller", func() {
 			By("verifying BudgetOK is False")
 			var budgetOK *metav1.Condition
 			for i := range updated.Status.Conditions {
-				if updated.Status.Conditions[i].Type == "BudgetOK" {
+				if updated.Status.Conditions[i].Type == conditionTypeBudgetOK {
 					budgetOK = &updated.Status.Conditions[i]
 					break
 				}

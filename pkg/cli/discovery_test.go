@@ -17,10 +17,10 @@ import (
 
 func TestMetricsURLFromEndpoint(t *testing.T) {
 	tests := []struct {
-		name      string
-		endpoint  string
-		want      string
-		wantErr   bool
+		name     string
+		endpoint string
+		want     string
+		wantErr  bool
 	}{
 		{
 			name:     "service DNS with chat completions path",
@@ -48,14 +48,14 @@ func TestMetricsURLFromEndpoint(t *testing.T) {
 			want:     "http://host:8080/metrics",
 		},
 		{
-			name:    "empty string",
+			name:     "empty string",
 			endpoint: "",
-			wantErr: true,
+			wantErr:  true,
 		},
 		{
-			name:    "no host",
+			name:     "no host",
 			endpoint: "/v1/chat/completions",
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -355,8 +355,8 @@ func TestDiscoverModelsFromInferenceServices(t *testing.T) {
 				t.Errorf("got %d models, want %d", len(models), tt.wantModels)
 			}
 			for _, m := range models {
-				if m.Source != "inferenceservice" {
-					t.Errorf("expected source 'inferenceservice', got %q", m.Source)
+				if m.Source != sourceInferenceService {
+					t.Errorf("expected source %q, got %q", sourceInferenceService, m.Source)
 				}
 				if m.MetricsURL == "" {
 					t.Error("expected non-empty MetricsURL")

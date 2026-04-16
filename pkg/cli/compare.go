@@ -110,7 +110,7 @@ func runCompare(opts *compareOptions) error {
 			continue
 		}
 		sc := scrapeClient
-		if m.Source == "inferenceservice" {
+		if m.Source == sourceInferenceService {
 			sc = directClient
 		}
 		im, err := scraper.ScrapeLlamaCPP(ctx, sc, m.MetricsURL)
