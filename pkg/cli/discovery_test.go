@@ -235,7 +235,7 @@ func TestDiscoverModelsFromPods(t *testing.T) {
 	}
 }
 
-func newFakeInferenceService(name, namespace, modelRef, phase, endpoint string) *unstructured.Unstructured {
+func newFakeInferenceService(name, modelRef, phase, endpoint string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "inference.llmkube.dev",
@@ -243,11 +243,11 @@ func newFakeInferenceService(name, namespace, modelRef, phase, endpoint string) 
 		Kind:    "InferenceService",
 	})
 	obj.SetName(name)
-	obj.SetNamespace(namespace)
-	obj.Object["spec"] = map[string]interface{}{
+	obj.SetNamespace("default")
+	obj.Object["spec"] = map[string]any{
 		"modelRef": modelRef,
 	}
-	obj.Object["status"] = map[string]interface{}{
+	obj.Object["status"] = map[string]any{
 		"phase":    phase,
 		"endpoint": endpoint,
 	}
@@ -256,7 +256,7 @@ func newFakeInferenceService(name, namespace, modelRef, phase, endpoint string) 
 
 func newFakeDynamicClient(objects ...*unstructured.Unstructured) *dynamicfake.FakeDynamicClient {
 	scheme := runtime.NewScheme()
-	var runtimeObjects []runtime.Object
+	runtimeObjects := make([]runtime.Object, 0, len(objects))
 	for _, obj := range objects {
 		runtimeObjects = append(runtimeObjects, obj)
 	}
@@ -288,7 +288,7 @@ func TestDiscoverModelsFromInferenceServices(t *testing.T) {
 		{
 			name: "one Ready ISVC not in known",
 			objects: []*unstructured.Unstructured{
-				newFakeInferenceService("openclaw-finance", "default", "qwen3-30b-a3b", "Ready",
+				newFakeInferenceService("openclaw-finance", "qwen3-30b-a3b", "Ready",
 					"http://openclaw-finance.default.svc.cluster.local:8080/v1/chat/completions"),
 			},
 			knownModels: map[string]bool{},
@@ -297,7 +297,7 @@ func TestDiscoverModelsFromInferenceServices(t *testing.T) {
 		{
 			name: "Ready ISVC already known from pod — deduplicated",
 			objects: []*unstructured.Unstructured{
-				newFakeInferenceService("nomic-embed", "default", "nomic-embed", "Ready",
+				newFakeInferenceService("nomic-embed", "nomic-embed", "Ready",
 					"http://nomic-embed.default.svc.cluster.local:8080/v1/chat/completions"),
 			},
 			knownModels: map[string]bool{"default/nomic-embed": true},
@@ -306,7 +306,7 @@ func TestDiscoverModelsFromInferenceServices(t *testing.T) {
 		{
 			name: "not Ready — skipped",
 			objects: []*unstructured.Unstructured{
-				newFakeInferenceService("openclaw-llm", "default", "qwen3-32b", "Creating",
+				newFakeInferenceService("openclaw-llm", "qwen3-32b", "Creating",
 					"http://openclaw-llm.default.svc.cluster.local:8080/v1/chat/completions"),
 			},
 			knownModels: map[string]bool{},
@@ -315,7 +315,7 @@ func TestDiscoverModelsFromInferenceServices(t *testing.T) {
 		{
 			name: "no endpoint — skipped",
 			objects: []*unstructured.Unstructured{
-				newFakeInferenceService("broken", "default", "broken-model", "Ready", ""),
+				newFakeInferenceService("broken", "broken-model", "Ready", ""),
 			},
 			knownModels: map[string]bool{},
 			wantModels:  0,
@@ -323,7 +323,7 @@ func TestDiscoverModelsFromInferenceServices(t *testing.T) {
 		{
 			name: "no modelRef — skipped",
 			objects: []*unstructured.Unstructured{
-				newFakeInferenceService("empty", "default", "", "Ready",
+				newFakeInferenceService("empty", "", "Ready",
 					"http://host:8080/v1/chat/completions"),
 			},
 			knownModels: map[string]bool{},
@@ -332,11 +332,11 @@ func TestDiscoverModelsFromInferenceServices(t *testing.T) {
 		{
 			name: "mixed: Ready+unknown, Ready+known, Creating",
 			objects: []*unstructured.Unstructured{
-				newFakeInferenceService("finance", "default", "qwen3-30b", "Ready",
+				newFakeInferenceService("finance", "qwen3-30b", "Ready",
 					"http://finance:8080/v1/chat/completions"),
-				newFakeInferenceService("embed", "default", "nomic-embed", "Ready",
+				newFakeInferenceService("embed", "nomic-embed", "Ready",
 					"http://embed:8080/v1/chat/completions"),
-				newFakeInferenceService("pending", "default", "qwen3-32b", "Creating",
+				newFakeInferenceService("pending", "qwen3-32b", "Creating",
 					"http://pending:8080/v1/chat/completions"),
 			},
 			knownModels: map[string]bool{"default/nomic-embed": true},
@@ -404,7 +404,7 @@ func TestDiscoverModelsFromInferenceServices_RBACDenied(t *testing.T) {
 }
 
 func TestInferenceServiceToModel(t *testing.T) {
-	obj := newFakeInferenceService("openclaw-finance", "default", "qwen3-30b-a3b", "Ready",
+	obj := newFakeInferenceService("openclaw-finance", "qwen3-30b-a3b", "Ready",
 		"http://100.103.147.52:8080/v1/chat/completions")
 
 	m, ok := inferenceServiceToModel(obj, map[string]bool{})

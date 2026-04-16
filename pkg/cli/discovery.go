@@ -195,7 +195,7 @@ func metricsURLFromEndpoint(endpoint string) (string, error) {
 // status.endpoint uses K8s service DNS names (e.g., svc.ns.svc.cluster.local)
 // which aren't resolvable from outside the cluster.
 func resolveEndpointIP(ctx context.Context, k8sClient client.Client, svcName, namespace string) (string, error) {
-	var ep corev1.Endpoints
+	var ep corev1.Endpoints //nolint:staticcheck // TODO: migrate to discoveryv1.EndpointSlice
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: svcName, Namespace: namespace}, &ep); err != nil {
 		return "", err
 	}

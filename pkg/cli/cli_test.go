@@ -432,7 +432,7 @@ func TestUsersCommand_HelpDoesNotError(t *testing.T) {
 func TestBudgetStatus(t *testing.T) {
 	tests := []struct {
 		name       string
-		conditions []interface{}
+		conditions []any
 		want       string
 	}{
 		{
@@ -442,8 +442,8 @@ func TestBudgetStatus(t *testing.T) {
 		},
 		{
 			name: "warning condition true",
-			conditions: []interface{}{
-				map[string]interface{}{
+			conditions: []any{
+				map[string]any{
 					"type":   "BudgetWarning",
 					"status": "True",
 				},
@@ -452,8 +452,8 @@ func TestBudgetStatus(t *testing.T) {
 		},
 		{
 			name: "exceeded condition true",
-			conditions: []interface{}{
-				map[string]interface{}{
+			conditions: []any{
+				map[string]any{
 					"type":   "BudgetExceeded",
 					"status": "True",
 				},
@@ -462,12 +462,12 @@ func TestBudgetStatus(t *testing.T) {
 		},
 		{
 			name: "exceeded takes priority over warning",
-			conditions: []interface{}{
-				map[string]interface{}{
+			conditions: []any{
+				map[string]any{
 					"type":   "BudgetWarning",
 					"status": "True",
 				},
-				map[string]interface{}{
+				map[string]any{
 					"type":   "BudgetExceeded",
 					"status": "True",
 				},
@@ -476,8 +476,8 @@ func TestBudgetStatus(t *testing.T) {
 		},
 		{
 			name: "warning condition false",
-			conditions: []interface{}{
-				map[string]interface{}{
+			conditions: []any{
+				map[string]any{
 					"type":   "BudgetWarning",
 					"status": "False",
 				},
@@ -489,15 +489,15 @@ func TestBudgetStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			obj := &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"metadata": map[string]interface{}{
+				Object: map[string]any{
+					"metadata": map[string]any{
 						"name":      "test-budget",
 						"namespace": "default",
 					},
 				},
 			}
 			if tt.conditions != nil {
-				obj.Object["status"] = map[string]interface{}{
+				obj.Object["status"] = map[string]any{
 					"conditions": tt.conditions,
 				}
 			}
