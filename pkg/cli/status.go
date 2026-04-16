@@ -9,12 +9,15 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
 	"github.com/defilantech/infercost/internal/calculator"
 	"github.com/defilantech/infercost/internal/scraper"
 )
+
+const modelLabel = "inference.llmkube.dev/model"
 
 type statusOptions struct {
 	namespace     string
@@ -45,10 +48,18 @@ and cost-per-token computed from live metrics.`,
 func runStatus(opts *statusOptions) error {
 	ctx := context.Background()
 
-	k8sClient, err := newK8sClient()
+	clients, err := newK8sClient()
 	if err != nil {
 		return err
 	}
+	k8sClient := clients.client
+
+	// Build a scraper that authenticates through the K8s API server.
+	transport, err := rest.TransportFor(clients.restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create transport: %w", err)
+	}
+	scrapeClient := scraper.NewClientFromTransport(5*time.Second, transport)
 
 	// Fetch all CostProfiles.
 	var profiles finopsv1alpha1.CostProfileList
@@ -91,7 +102,7 @@ func runStatus(opts *statusOptions) error {
 		}
 	}
 
-	// Discover inference pods and show model status.
+	// Discover inference models from pods and InferenceService CRDs.
 	fmt.Println("\nINFERENCE MODELS")
 	fmt.Println("================")
 
@@ -105,34 +116,51 @@ func runStatus(opts *statusOptions) error {
 		return fmt.Errorf("failed to list pods: %w", err)
 	}
 
-	scrapeClient := scraper.NewClient(5 * time.Second)
+	// Phase 1: Discover models from pods.
+	podModels, knownModels := discoverModelsFromPods(clients.restConfig, podList.Items)
+
+	// Phase 2: Discover additional models from InferenceService CRDs.
+	isvcModels, err := discoverModelsFromInferenceServices(ctx, clients.dynamic, k8sClient, opts.namespace, knownModels)
+	if err != nil {
+		return fmt.Errorf("failed to discover InferenceServices: %w", err)
+	}
+
+	allModels := append(podModels, isvcModels...)
+
+	// Direct HTTP client for scraping non-pod endpoints (Metal agent, etc.).
+	directClient := scraper.NewClient(5 * time.Second)
 
 	w = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintf(w, "MODEL\tNAMESPACE\tPOD\tINPUT TOKENS\tOUTPUT TOKENS\tTOKENS/SEC\tSTATUS\n")
+	_, _ = fmt.Fprintf(w, "MODEL\tNAMESPACE\tSOURCE\tINPUT TOKENS\tOUTPUT TOKENS\tTOKENS/SEC\tSTATUS\n")
 
+	var totalInput, totalOutput float64
 	modelCount := 0
-	for i := range podList.Items {
-		pod := &podList.Items[i]
-		modelName := pod.Labels["inference.llmkube.dev/model"]
-		if modelName == "" {
-			continue
-		}
-		if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
+
+	for i := range allModels {
+		m := &allModels[i]
+		if !m.IsScrapable {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\t%s\n",
-				modelName, pod.Namespace, pod.Name, string(pod.Status.Phase))
+				m.Name, m.Namespace, m.SourceName, m.Phase)
 			modelCount++
 			continue
 		}
 
-		// Scrape live metrics from the pod.
-		endpoint := fmt.Sprintf("http://%s:8080/metrics", pod.Status.PodIP)
-		im, err := scraper.ScrapeLlamaCPP(ctx, scrapeClient, endpoint)
+		// Use proxy client for pods, direct client for InferenceService endpoints.
+		sc := scrapeClient
+		if m.Source == "inferenceservice" {
+			sc = directClient
+		}
+
+		im, err := scraper.ScrapeLlamaCPP(ctx, sc, m.MetricsURL)
 		if err != nil {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\tScrape Error\n",
-				modelName, pod.Namespace, pod.Name)
+				m.Name, m.Namespace, m.SourceName)
 			modelCount++
 			continue
 		}
+
+		totalInput += im.PromptTokensTotal
+		totalOutput += im.PredictedTokensTotal
 
 		status := "Idle"
 		if im.RequestsProcessing > 0 {
@@ -140,9 +168,9 @@ func runStatus(opts *statusOptions) error {
 		}
 
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%.1f\t%s\n",
-			modelName,
-			pod.Namespace,
-			pod.Name,
+			m.Name,
+			m.Namespace,
+			m.SourceName,
 			formatTokenCount(im.PromptTokensTotal),
 			formatTokenCount(im.PredictedTokensTotal),
 			im.PredictedTokensPerSec,
@@ -153,54 +181,36 @@ func runStatus(opts *statusOptions) error {
 	_ = w.Flush()
 
 	if modelCount == 0 {
-		fmt.Println("  No inference pods found with LLMKube labels.")
+		fmt.Println("  No inference models found.")
 	}
 
 	// Quick cloud comparison summary using cumulative totals.
-	if len(profiles.Items) > 0 && modelCount > 0 {
+	if len(profiles.Items) > 0 && totalInput+totalOutput > 0 {
 		fmt.Println("\nQUICK COMPARISON")
 		fmt.Println("================")
 		profile := profiles.Items[0]
 		hoursRunning := time.Since(profile.CreationTimestamp.Time).Hours()
 		onPremTotal := profile.Status.HourlyCostUSD * hoursRunning
 
-		// Sum all tokens across pods.
-		var totalInput, totalOutput float64
-		for i := range podList.Items {
-			pod := &podList.Items[i]
-			if pod.Labels["inference.llmkube.dev/model"] == "" || pod.Status.PodIP == "" {
-				continue
+		fmt.Printf("  Total tokens processed: %s input + %s output\n",
+			formatTokenCount(totalInput), formatTokenCount(totalOutput))
+		fmt.Printf("  On-prem cost (%.1f hours): $%.4f\n", hoursRunning, onPremTotal)
+		fmt.Println()
+
+		pricing := calculator.DefaultCloudPricing()
+		comparisons := calculator.CompareToCloud(int64(totalInput), int64(totalOutput), onPremTotal, pricing)
+
+		w = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		_, _ = fmt.Fprintf(w, "  PROVIDER\tMODEL\tCLOUD COST\tSAVINGS\t\n")
+		for _, c := range comparisons {
+			savingsStr := fmt.Sprintf("$%.2f (%.0f%%)", c.SavingsUSD, c.SavingsPercent)
+			if c.SavingsPercent < 0 {
+				savingsStr = fmt.Sprintf("-$%.2f (cloud %.0f%% cheaper)", -c.SavingsUSD, -c.SavingsPercent)
 			}
-			endpoint := fmt.Sprintf("http://%s:8080/metrics", pod.Status.PodIP)
-			im, err := scraper.ScrapeLlamaCPP(ctx, scrapeClient, endpoint)
-			if err != nil {
-				continue
-			}
-			totalInput += im.PromptTokensTotal
-			totalOutput += im.PredictedTokensTotal
+			_, _ = fmt.Fprintf(w, "  %s\t%s\t$%.2f\t%s\t\n",
+				c.Provider, c.Model, c.CloudCostUSD, savingsStr)
 		}
-
-		if totalInput+totalOutput > 0 {
-			fmt.Printf("  Total tokens processed: %s input + %s output\n",
-				formatTokenCount(totalInput), formatTokenCount(totalOutput))
-			fmt.Printf("  On-prem cost (%.1f hours): $%.4f\n", hoursRunning, onPremTotal)
-			fmt.Println()
-
-			pricing := calculator.DefaultCloudPricing()
-			comparisons := calculator.CompareToCloud(int64(totalInput), int64(totalOutput), onPremTotal, pricing)
-
-			w = tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintf(w, "  PROVIDER\tMODEL\tCLOUD COST\tSAVINGS\t\n")
-			for _, c := range comparisons {
-				savingsStr := fmt.Sprintf("$%.2f (%.0f%%)", c.SavingsUSD, c.SavingsPercent)
-				if c.SavingsPercent < 0 {
-					savingsStr = fmt.Sprintf("-$%.2f (cloud %.0f%% cheaper)", -c.SavingsUSD, -c.SavingsPercent)
-				}
-				_, _ = fmt.Fprintf(w, "  %s\t%s\t$%.2f\t%s\t\n",
-					c.Provider, c.Model, c.CloudCostUSD, savingsStr)
-			}
-			_ = w.Flush()
-		}
+		_ = w.Flush()
 	}
 
 	return nil

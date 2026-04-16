@@ -37,6 +37,17 @@ func NewClient(timeout time.Duration) *Client {
 	}
 }
 
+// NewClientFromTransport creates a scraper client using a pre-configured
+// http.RoundTripper (e.g., from k8s rest.TransportFor) for authentication.
+func NewClientFromTransport(timeout time.Duration, transport http.RoundTripper) *Client {
+	return &Client{
+		httpClient: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
+	}
+}
+
 // Scrape fetches and parses all metrics from a Prometheus /metrics endpoint.
 func (c *Client) Scrape(ctx context.Context, url string) ([]MetricSample, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

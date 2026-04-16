@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
@@ -49,10 +50,18 @@ Sources: openai.com/pricing, platform.claude.com/pricing, ai.google.dev/pricing`
 func runCompare(opts *compareOptions) error {
 	ctx := context.Background()
 
-	k8sClient, err := newK8sClient()
+	clients, err := newK8sClient()
 	if err != nil {
 		return err
 	}
+	k8sClient := clients.client
+
+	// Build a scraper that authenticates through the K8s API server.
+	transport, err := rest.TransportFor(clients.restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create transport: %w", err)
+	}
+	scrapeClient := scraper.NewClientFromTransport(5*time.Second, transport)
 
 	// Fetch CostProfiles.
 	var profiles finopsv1alpha1.CostProfileList
@@ -73,7 +82,7 @@ func runCompare(opts *compareOptions) error {
 	}
 	onPremTotal := profile.Status.HourlyCostUSD * hoursRunning
 
-	// Gather tokens from inference pods.
+	// Gather tokens from inference models (pods + InferenceService CRDs).
 	listOpts := []client.ListOption{}
 	if opts.namespace != "" {
 		listOpts = append(listOpts, client.InNamespace(opts.namespace))
@@ -84,19 +93,27 @@ func runCompare(opts *compareOptions) error {
 		return fmt.Errorf("failed to list pods: %w", err)
 	}
 
-	scrapeClient := scraper.NewClient(5 * time.Second)
+	podModels, knownModels := discoverModelsFromPods(clients.restConfig, podList.Items)
+
+	isvcModels, err := discoverModelsFromInferenceServices(ctx, clients.dynamic, k8sClient, opts.namespace, knownModels)
+	if err != nil {
+		return fmt.Errorf("failed to discover InferenceServices: %w", err)
+	}
+
+	allModels := append(podModels, isvcModels...)
+	directClient := scraper.NewClient(5 * time.Second)
 
 	var totalInput, totalOutput float64
-	for i := range podList.Items {
-		pod := &podList.Items[i]
-		if pod.Labels["inference.llmkube.dev/model"] == "" || pod.Status.PodIP == "" {
+	for i := range allModels {
+		m := &allModels[i]
+		if !m.IsScrapable {
 			continue
 		}
-		if pod.Status.Phase != corev1.PodRunning {
-			continue
+		sc := scrapeClient
+		if m.Source == "inferenceservice" {
+			sc = directClient
 		}
-		endpoint := fmt.Sprintf("http://%s:8080/metrics", pod.Status.PodIP)
-		im, err := scraper.ScrapeLlamaCPP(ctx, scrapeClient, endpoint)
+		im, err := scraper.ScrapeLlamaCPP(ctx, sc, m.MetricsURL)
 		if err != nil {
 			continue
 		}
