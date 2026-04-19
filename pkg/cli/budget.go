@@ -23,6 +23,8 @@ type budgetOptions struct {
 	allNamespaces bool
 }
 
+// NewBudgetCommand creates the "budget" CLI subcommand that lists TokenBudget
+// resources and their monthly spend utilization.
 func NewBudgetCommand() *cobra.Command {
 	opts := &budgetOptions{}
 

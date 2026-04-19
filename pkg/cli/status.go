@@ -27,6 +27,9 @@ type statusOptions struct {
 	allNamespaces bool
 }
 
+// NewStatusCommand creates the "status" CLI subcommand that displays real-time
+// cost data for all CostProfiles and inference workloads, including hardware costs,
+// GPU power draw, active models, and token throughput.
 func NewStatusCommand() *cobra.Command {
 	opts := &statusOptions{}
 
