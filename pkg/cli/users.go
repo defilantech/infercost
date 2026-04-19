@@ -11,6 +11,8 @@ type usersOptions struct {
 	top       int
 }
 
+// NewUsersCommand creates the "users" CLI subcommand for per-user inference cost
+// attribution. Requires LiteLLM integration to be configured on the InferCost operator.
 func NewUsersCommand() *cobra.Command {
 	opts := &usersOptions{}
 
