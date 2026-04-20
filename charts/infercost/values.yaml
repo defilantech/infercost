@@ -118,6 +118,21 @@ fullnameOverride: ""
 
 # Prometheus monitoring integration
 prometheus:
+  # PodMonitor scrapes the controller pod directly.
+  # Default-on because it's the recommended path for kube-prometheus-stack users —
+  # no Service required, works out of the box. The template is guarded by an
+  # APIVersions check so clusters without prometheus-operator CRDs are unaffected.
+  podMonitor:
+    enabled: true
+    namespace: ""
+    interval: 30s
+    labels: {}
+    relabelings: []
+    metricRelabelings: []
+
+  # ServiceMonitor is an alternative for users who prefer Service-based scraping
+  # or run a prometheus-operator setup that only consumes ServiceMonitors.
+  # Leave one of podMonitor or serviceMonitor enabled, not both.
   serviceMonitor:
     enabled: false
     namespace: ""
