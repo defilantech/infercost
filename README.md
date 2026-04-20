@@ -48,7 +48,7 @@ token_cost = (GPU_amortization + electricity x power_draw x PUE) / tokens_per_ho
 - **REST API**: Programmatic access to cost data for custom dashboards, bots, and integrations
 - **CLI**: `infercost status` and `infercost compare` for terminal-based cost analysis
 - **Pre-built Grafana dashboard**: Ships as JSON, auto-provisionable via sidecar
-- **Multi-backend**: Scrapes llama.cpp, vLLM, or any Prometheus-compatible inference engine
+- **Multi-backend**: Scrapes llama.cpp and vLLM out of the box, selected per-pod via annotation
 
 ## Quick Start
 
@@ -173,6 +173,23 @@ InferCost runs as a single controller pod. It reads from data sources you alread
 | llama.cpp / vLLM | Token counts per inference pod |
 | CostProfile CRD | Hardware purchase price, amortization, electricity rate |
 | LiteLLM PostgreSQL | Per-user token attribution (optional) |
+
+**Per-pod backend selection**: InferCost looks at annotations on each inference pod to decide which /metrics parser to use. Default is llama.cpp for backwards compatibility.
+
+| Annotation (or label) | Values | Default |
+|----------------------|--------|---------|
+| `infercost.ai/backend` | `llamacpp`, `vllm` | `llamacpp` |
+| `infercost.ai/metrics-port` | any valid port | `8080` (llamacpp), `8000` (vllm) |
+
+Example vLLM pod:
+
+```yaml
+metadata:
+  annotations:
+    infercost.ai/backend: vllm
+  labels:
+    inference.llmkube.dev/model: qwen3-coder-30b
+```
 
 **Controller Pipeline**: GPU Power Scraper → Token Counter → Cost Calculator → Attribution Engine → Cloud Comparator → Report Writer
 
