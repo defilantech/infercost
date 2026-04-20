@@ -45,6 +45,20 @@ const (
 	modelLabel = "inference.llmkube.dev/model"
 )
 
+// DCGM status reporting on CostProfile.status.conditions.
+const (
+	// ConditionDCGMReachable reports whether InferCost can read real-time GPU
+	// power metrics from a DCGM exporter. When False, the cost engine falls
+	// back to the TDP declared on the CostProfile spec — accurate enough for
+	// order-of-magnitude numbers, but it cannot track dynamic load.
+	ConditionDCGMReachable = "DCGMReachable"
+
+	ReasonDCGMHealthy       = "DCGMHealthy"
+	ReasonDCGMNotConfigured = "DCGMNotConfigured"
+	ReasonDCGMScrapeError   = "DCGMScrapeError"
+	ReasonDCGMNoReadings    = "DCGMNoReadings"
+)
+
 // CostProfileReconciler reconciles a CostProfile object.
 type CostProfileReconciler struct {
 	client.Client
@@ -84,32 +98,10 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		PUEFactor:                 profile.Spec.Electricity.PUEFactor,
 	}
 
-	// 2. Scrape DCGM for real-time GPU power draw.
-	var totalPowerW float64
-	if r.DCGMEndpoint != "" {
-		readings, err := scraper.ScrapeDCGM(ctx, r.ScrapeClient, r.DCGMEndpoint)
-		if err != nil {
-			log.Error(err, "failed to scrape DCGM, falling back to TDP")
-			totalPowerW = r.fallbackPowerDraw(profile)
-		} else {
-			// Filter readings to GPUs matching this profile's node selector.
-			node := profile.Spec.NodeSelector["kubernetes.io/hostname"]
-			for _, reading := range readings {
-				if node == "" || reading.Node == node {
-					totalPowerW += reading.PowerW
-
-					infercostmetrics.GPUPowerWatts.WithLabelValues(
-						profile.Name, reading.Node, reading.GPUID,
-					).Set(reading.PowerW)
-				}
-			}
-			if totalPowerW == 0 {
-				totalPowerW = r.fallbackPowerDraw(profile)
-			}
-		}
-	} else {
-		totalPowerW = r.fallbackPowerDraw(profile)
-	}
+	// 2. Scrape DCGM for real-time GPU power draw, and surface any fallback
+	// path as a DCGMReachable condition so operators can tell at a glance
+	// whether their dashboards will show real-time load or a flat TDP estimate.
+	totalPowerW, dcgmCondition := r.readDCGMPower(ctx, profile)
 
 	// 3. Compute hourly costs.
 	amort, elec, total := calculator.ComputeHourlyCost(hw, totalPowerW)
@@ -145,6 +137,8 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Message:            fmt.Sprintf("Hourly cost: $%.4f (amort: $%.4f, elec: $%.4f)", total, amort, elec),
 		LastTransitionTime: now,
 	})
+	dcgmCondition.LastTransitionTime = now
+	meta.SetStatusCondition(&profile.Status.Conditions, dcgmCondition)
 
 	if err := r.Status().Update(ctx, &profile); err != nil {
 		log.Error(err, "failed to update CostProfile status")
@@ -332,6 +326,69 @@ func (r *CostProfileReconciler) fallbackPowerDraw(profile finopsv1alpha1.CostPro
 		return float64(*profile.Spec.Hardware.TDPWatts) * float64(profile.Spec.Hardware.GPUCount)
 	}
 	return 0
+}
+
+// readDCGMPower returns the current total GPU power draw for the profile's
+// node selector along with a DCGMReachable condition that describes how the
+// number was obtained. Silent fallbacks are the main failure mode users have
+// reported ("why is my dashboard flat?"), so every path here produces an
+// explicit condition rather than hiding state.
+func (r *CostProfileReconciler) readDCGMPower(ctx context.Context, profile finopsv1alpha1.CostProfile) (float64, metav1.Condition) {
+	log := logf.FromContext(ctx)
+
+	if r.DCGMEndpoint == "" {
+		power := r.fallbackPowerDraw(profile)
+		return power, metav1.Condition{
+			Type:    ConditionDCGMReachable,
+			Status:  metav1.ConditionFalse,
+			Reason:  ReasonDCGMNotConfigured,
+			Message: fmt.Sprintf("DCGM endpoint not set; using TDP fallback (%.0fW). Install the DCGM exporter for real-time power — see https://infercost.ai/docs/dcgm.", power),
+		}
+	}
+
+	readings, err := scraper.ScrapeDCGM(ctx, r.ScrapeClient, r.DCGMEndpoint)
+	if err != nil {
+		log.Error(err, "failed to scrape DCGM, falling back to TDP", "endpoint", r.DCGMEndpoint)
+		power := r.fallbackPowerDraw(profile)
+		return power, metav1.Condition{
+			Type:    ConditionDCGMReachable,
+			Status:  metav1.ConditionFalse,
+			Reason:  ReasonDCGMScrapeError,
+			Message: fmt.Sprintf("DCGM scrape failed at %s: %v. Using TDP fallback (%.0fW).", r.DCGMEndpoint, err, power),
+		}
+	}
+
+	node := profile.Spec.NodeSelector["kubernetes.io/hostname"]
+	var totalPowerW float64
+	for _, reading := range readings {
+		if node == "" || reading.Node == node {
+			totalPowerW += reading.PowerW
+			infercostmetrics.GPUPowerWatts.WithLabelValues(
+				profile.Name, reading.Node, reading.GPUID,
+			).Set(reading.PowerW)
+		}
+	}
+
+	if totalPowerW == 0 {
+		power := r.fallbackPowerDraw(profile)
+		nodeDesc := node
+		if nodeDesc == "" {
+			nodeDesc = "(any node)"
+		}
+		return power, metav1.Condition{
+			Type:    ConditionDCGMReachable,
+			Status:  metav1.ConditionUnknown,
+			Reason:  ReasonDCGMNoReadings,
+			Message: fmt.Sprintf("DCGM reachable at %s but returned no readings for node %q. Check the nodeSelector matches a GPU host. Using TDP fallback (%.0fW).", r.DCGMEndpoint, nodeDesc, power),
+		}
+	}
+
+	return totalPowerW, metav1.Condition{
+		Type:    ConditionDCGMReachable,
+		Status:  metav1.ConditionTrue,
+		Reason:  ReasonDCGMHealthy,
+		Message: fmt.Sprintf("DCGM healthy at %s (%.0fW current draw).", r.DCGMEndpoint, totalPowerW),
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
