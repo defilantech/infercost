@@ -1,0 +1,23 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-a6000
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: a6000-48gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA RTX A6000"
+    gpuCount: 2
+    # Purchase price: ~$4,500-$5,500 per RTX A6000 at mid-2026 street.
+    # Prosumer card, 48GB, popular for local LLM labs due to VRAM-per-dollar.
+    purchasePriceUSD: 9500
+    amortizationYears: 4              # Longer life typical on prosumer boards
+    maintenancePercentPerYear: 0.05
+    tdpWatts: 300
+  electricity:
+    ratePerKWh: 0.12
+    pueFactor: 1.2                    # Small office / single-rack typical
+  nodeSelector:
+    kubernetes.io/hostname: a6000-node-01

@@ -103,6 +103,22 @@ rbac:
 # Install CRDs with the chart
 installCRDs: true
 
+# Cloud pricing override. The controller ships with an embedded list-price
+# catalog (config/pricing/cloud-pricing.yaml), verified on the date stamped
+# in that file. Enable this block to replace list prices with your negotiated
+# rates — essential for honest comparisons in enterprise deployments where
+# committed-use discounts are the norm.
+pricing:
+  override:
+    # Mount a ConfigMap at /etc/infercost/pricing.yaml and pass --pricing-file
+    # to the controller.
+    enabled: false
+    # Inline YAML for the override. Must follow the same schema as
+    # config/pricing/cloud-pricing.yaml (lastVerified, sources, providers).
+    # If empty, the chart ships its bundled copy of the default catalog as a
+    # starting template that operators can then edit in place.
+    inline: ""
+
 # Pod annotations
 podAnnotations: {}
 
@@ -118,6 +134,21 @@ fullnameOverride: ""
 
 # Prometheus monitoring integration
 prometheus:
+  # PodMonitor scrapes the controller pod directly.
+  # Default-on because it's the recommended path for kube-prometheus-stack users —
+  # no Service required, works out of the box. The template is guarded by an
+  # APIVersions check so clusters without prometheus-operator CRDs are unaffected.
+  podMonitor:
+    enabled: true
+    namespace: ""
+    interval: 30s
+    labels: {}
+    relabelings: []
+    metricRelabelings: []
+
+  # ServiceMonitor is an alternative for users who prefer Service-based scraping
+  # or run a prometheus-operator setup that only consumes ServiceMonitors.
+  # Leave one of podMonitor or serviceMonitor enabled, not both.
   serviceMonitor:
     enabled: false
     namespace: ""

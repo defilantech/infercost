@@ -46,9 +46,10 @@ token_cost = (GPU_amortization + electricity x power_draw x PUE) / tokens_per_ho
 - **Per-team attribution**: Costs broken down by Kubernetes namespace with zero configuration
 - **Prometheus metrics**: 12 gauges scrapeable by any monitoring tool, not locked to Grafana
 - **REST API**: Programmatic access to cost data for custom dashboards, bots, and integrations
-- **CLI**: `infercost status` and `infercost compare` for terminal-based cost analysis
+- **CLI**: `infercost status`, `infercost compare`, `infercost export focus` for terminal analysis and FOCUS-compatible CSV export
+- **FOCUS-compatible export**: Drop InferCost data into Kubecost, Cloudability, or any FOCUS-aware BI pipeline. See [docs/focus-export.md](docs/focus-export.md).
 - **Pre-built Grafana dashboard**: Ships as JSON, auto-provisionable via sidecar
-- **Multi-backend**: Scrapes llama.cpp, vLLM, or any Prometheus-compatible inference engine
+- **Multi-backend**: Scrapes llama.cpp and vLLM out of the box, selected per-pod via annotation
 
 ## Quick Start
 
@@ -91,6 +92,8 @@ spec:
 ```bash
 kubectl apply -f costprofile.yaml
 ```
+
+> Don't want to write one from scratch? [`config/samples/costprofiles/`](config/samples/costprofiles/) ships ready-to-use manifests for H100, A100 80GB/40GB, L40S, A6000, RTX 4090/5090/5060 Ti, and Apple M2 Ultra — with pricing and amortization assumptions documented inline.
 
 ### See Your Costs
 
@@ -171,6 +174,23 @@ InferCost runs as a single controller pod. It reads from data sources you alread
 | llama.cpp / vLLM | Token counts per inference pod |
 | CostProfile CRD | Hardware purchase price, amortization, electricity rate |
 | LiteLLM PostgreSQL | Per-user token attribution (optional) |
+
+**Per-pod backend selection**: InferCost looks at annotations on each inference pod to decide which /metrics parser to use. Default is llama.cpp for backwards compatibility.
+
+| Annotation (or label) | Values | Default |
+|----------------------|--------|---------|
+| `infercost.ai/backend` | `llamacpp`, `vllm` | `llamacpp` |
+| `infercost.ai/metrics-port` | any valid port | `8080` (llamacpp), `8000` (vllm) |
+
+Example vLLM pod:
+
+```yaml
+metadata:
+  annotations:
+    infercost.ai/backend: vllm
+  labels:
+    inference.llmkube.dev/model: qwen3-coder-30b
+```
 
 **Controller Pipeline**: GPU Power Scraper → Token Counter → Cost Calculator → Attribution Engine → Cloud Comparator → Report Writer
 

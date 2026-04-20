@@ -1,0 +1,26 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-h100-sxm5
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: h100-sxm5-80gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA H100 SXM5"
+    gpuCount: 8                    # Adjust for your node layout
+    # Purchase price: ~$28,000-$35,000 per H100 SXM5 80GB at mid-2026 list.
+    # 8-GPU HGX H100 systems quoted at $240k-$300k retail depending on vendor.
+    purchasePriceUSD: 280000
+    amortizationYears: 3
+    maintenancePercentPerYear: 0.10   # 10% annual support contract typical
+    tdpWatts: 700                     # Per-GPU TDP spec
+  electricity:
+    ratePerKWh: 0.12                  # US commercial average; colo/industrial varies
+    pueFactor: 1.4                    # Typical modern data center PUE
+  nodeSelector:
+    # Match the node where your H100 workloads run. Common options:
+    #   kubernetes.io/hostname: <node-name>
+    #   nvidia.com/gpu.product: NVIDIA-H100-80GB-HBM3
+    kubernetes.io/hostname: h100-node-01

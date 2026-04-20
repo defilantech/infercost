@@ -51,6 +51,16 @@ GETTING STARTED:
 
 6. Prometheus metrics are available at:
    {{ include "infercost.fullname" . }}-metrics.{{ include "infercost.namespace" . }}.svc:{{ .Values.metrics.service.port }}/metrics
+{{- if and .Values.prometheus.podMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+
+   A PodMonitor has been created so kube-prometheus-stack will discover the
+   controller automatically. Verify scraping with:
+     kubectl get podmonitor -n {{ include "infercost.namespace" . }} {{ include "infercost.fullname" . }}
+{{- else if not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+
+   prometheus-operator CRDs not detected — install kube-prometheus-stack and
+   re-run `helm upgrade` to auto-create a PodMonitor for scraping.
+{{- end }}
 {{- end }}
 
 ---
