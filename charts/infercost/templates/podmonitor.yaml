@@ -1,0 +1,40 @@
+{{- if and .Values.prometheus.podMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "infercost.fullname" . }}
+  {{- if .Values.prometheus.podMonitor.namespace }}
+  namespace: {{ .Values.prometheus.podMonitor.namespace }}
+  {{- else }}
+  namespace: {{ include "infercost.namespace" . }}
+  {{- end }}
+  labels:
+    {{- include "infercost.labels" . | nindent 4 }}
+    {{- with .Values.prometheus.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+    - {{ include "infercost.namespace" . }}
+  selector:
+    matchLabels:
+      {{- include "infercost.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+  - port: metrics
+    path: /metrics
+    interval: {{ .Values.prometheus.podMonitor.interval }}
+    {{- if .Values.metrics.secure }}
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+    {{- end }}
+    {{- with .Values.prometheus.podMonitor.relabelings }}
+    relabelings:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.prometheus.podMonitor.metricRelabelings }}
+    metricRelabelings:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+{{- end }}
