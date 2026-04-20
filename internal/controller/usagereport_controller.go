@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -26,8 +27,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
 	internalapi "github.com/defilantech/infercost/internal/api"
@@ -71,15 +74,21 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	var profile finopsv1alpha1.CostProfile
 	if err := r.Get(ctx, client.ObjectKey{Name: report.Spec.CostProfileRef, Namespace: req.Namespace}, &profile); err != nil {
 		now := metav1.Now()
-		meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{
-			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "CostProfileNotFound",
-			Message:            fmt.Sprintf("CostProfile %q not found: %v", report.Spec.CostProfileRef, err),
-			LastTransitionTime: now,
-		})
-		if statusErr := r.Status().Update(ctx, &report); statusErr != nil {
-			log.Error(statusErr, "failed to update UsageReport status")
+		existing := meta.FindStatusCondition(report.Status.Conditions, "Ready")
+		// Only write status if the error condition isn't already set with the same reason.
+		// Without this, every reconcile on a missing-profile report re-writes status,
+		// which re-enqueues events on top of the RequeueAfter schedule.
+		if existing == nil || existing.Status != metav1.ConditionFalse || existing.Reason != "CostProfileNotFound" {
+			meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{
+				Type:               "Ready",
+				Status:             metav1.ConditionFalse,
+				Reason:             "CostProfileNotFound",
+				Message:            fmt.Sprintf("CostProfile %q not found: %v", report.Spec.CostProfileRef, err),
+				LastTransitionTime: now,
+			})
+			if statusErr := r.Status().Update(ctx, &report); statusErr != nil {
+				log.Error(statusErr, "failed to update UsageReport status")
+			}
 		}
 		return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
 	}
@@ -226,10 +235,12 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Format period string based on schedule.
 	periodStr := formatPeriod(report.Spec.Schedule, periodStart)
 
-	// 8. Update status.
+	// 8. Build the new status, then only write if content has actually changed.
 	metaNow := metav1.Now()
 	metaPeriodStart := metav1.NewTime(periodStart)
 	metaPeriodEnd := metav1.NewTime(periodEnd)
+
+	previous := report.Status.DeepCopy()
 
 	report.Status.Period = periodStr
 	report.Status.PeriodStart = &metaPeriodStart
@@ -249,6 +260,22 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Message:            fmt.Sprintf("Period %s: $%.4f across %d tokens", periodStr, totalCost, totalTokens),
 		LastTransitionTime: metaNow,
 	})
+
+	// Skip the write entirely when the underlying tokens and breakdowns haven't
+	// changed. The Ready condition is preserved because SetStatusCondition is a
+	// no-op when the status/reason/message are identical. This keeps apiserver
+	// writes proportional to actual workload activity rather than reconcile rate.
+	readyTransitioned := conditionTransitioned(previous.Conditions, report.Status.Conditions, "Ready")
+	if !readyTransitioned && usageReportStatusContentEqual(previous, &report.Status) {
+		log.V(1).Info("usage report unchanged, skipping status write",
+			"period", periodStr,
+			"totalTokens", totalTokens,
+		)
+		if r.APIStore != nil {
+			r.APIStore.SetNamespaceCosts(namespaceCostData)
+		}
+		return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
+	}
 
 	if err := r.Status().Update(ctx, &report); err != nil {
 		log.Error(err, "failed to update UsageReport status")
@@ -305,9 +332,81 @@ func formatPeriod(schedule finopsv1alpha1.ReportSchedule, start time.Time) strin
 }
 
 // SetupWithManager sets up the controller with the Manager.
+//
+// The builder uses GenerationChangedPredicate so watch events triggered by our
+// own Status().Update calls do not re-enqueue the resource. Without this, the
+// reconciler hot-loops: every reconcile writes status, every status write fires
+// an Update event, every event re-enqueues the resource. Periodic recomputation
+// is handled via the RequeueAfter return value, not via watch events.
 func (r *UsageReportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&finopsv1alpha1.UsageReport{}).
+		For(&finopsv1alpha1.UsageReport{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("usagereport").
 		Complete(r)
+}
+
+// conditionTransitioned reports whether the named condition changed Status or
+// Reason between two condition slices. LastTransitionTime is ignored because
+// controller-runtime/meta updates it on every SetStatusCondition call when the
+// status or reason flips, which is exactly what we want to detect.
+func conditionTransitioned(previous, current []metav1.Condition, conditionType string) bool {
+	a := meta.FindStatusCondition(previous, conditionType)
+	b := meta.FindStatusCondition(current, conditionType)
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	return a.Status != b.Status || a.Reason != b.Reason
+}
+
+// usageReportStatusContentEqual reports whether two UsageReport statuses are
+// equivalent for the purposes of skipping a Status().Update. It deliberately
+// ignores time-moving fields (PeriodEnd, LastUpdated, EstimatedCostUSD,
+// CostPerMillionTokens, and per-entity cost breakdowns) because those drift on
+// every reconcile even on an idle cluster — they track how long the current
+// period has been open, not the underlying work. Skipping a write on idle
+// eliminates apiserver churn even if a stray event slips past the predicate.
+func usageReportStatusContentEqual(a, b *finopsv1alpha1.UsageReportStatus) bool {
+	if a.Period != b.Period {
+		return false
+	}
+	if a.InputTokens != b.InputTokens || a.OutputTokens != b.OutputTokens {
+		return false
+	}
+	if len(a.ByModel) != len(b.ByModel) || len(a.ByNamespace) != len(b.ByNamespace) {
+		return false
+	}
+	aModels := make([]string, 0, len(a.ByModel))
+	bModels := make([]string, 0, len(b.ByModel))
+	for _, m := range a.ByModel {
+		aModels = append(aModels, fmt.Sprintf("%s/%s:%d+%d", m.Namespace, m.Model, m.InputTokens, m.OutputTokens))
+	}
+	for _, m := range b.ByModel {
+		bModels = append(bModels, fmt.Sprintf("%s/%s:%d+%d", m.Namespace, m.Model, m.InputTokens, m.OutputTokens))
+	}
+	sort.Strings(aModels)
+	sort.Strings(bModels)
+	for i := range aModels {
+		if aModels[i] != bModels[i] {
+			return false
+		}
+	}
+	aNS := make([]string, 0, len(a.ByNamespace))
+	bNS := make([]string, 0, len(b.ByNamespace))
+	for _, n := range a.ByNamespace {
+		aNS = append(aNS, fmt.Sprintf("%s:%d", n.Namespace, n.TokenCount))
+	}
+	for _, n := range b.ByNamespace {
+		bNS = append(bNS, fmt.Sprintf("%s:%d", n.Namespace, n.TokenCount))
+	}
+	sort.Strings(aNS)
+	sort.Strings(bNS)
+	for i := range aNS {
+		if aNS[i] != bNS[i] {
+			return false
+		}
+	}
+	return true
 }

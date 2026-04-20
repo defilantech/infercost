@@ -356,4 +356,174 @@ var _ = Describe("UsageReport Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
+
+	// Regression test for #19: consecutive reconciles on an idle cluster must
+	// not keep writing status. The first reconcile transitions the condition and
+	// persists content; the second reconcile with no token change must be a
+	// no-op on the status subresource so we don't re-trigger watch events.
+	Context("When reconciling twice in a row with no underlying change", func() {
+		const (
+			reportName      = "test-usagereport-idempotent"
+			costProfileName = "test-costprofile-idempotent"
+		)
+
+		ctx := context.Background()
+
+		reportKey := types.NamespacedName{
+			Name:      reportName,
+			Namespace: "default",
+		}
+		profileKey := types.NamespacedName{
+			Name:      costProfileName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			profile := &finopsv1alpha1.CostProfile{}
+			err := k8sClient.Get(ctx, profileKey, profile)
+			if err != nil && errors.IsNotFound(err) {
+				tdp := int32(150)
+				profile = &finopsv1alpha1.CostProfile{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      costProfileName,
+						Namespace: "default",
+					},
+					Spec: finopsv1alpha1.CostProfileSpec{
+						Hardware: finopsv1alpha1.HardwareSpec{
+							GPUModel:          "NVIDIA GeForce RTX 5060 Ti",
+							GPUCount:          1,
+							PurchasePriceUSD:  480,
+							AmortizationYears: 3,
+							TDPWatts:          &tdp,
+						},
+						Electricity: finopsv1alpha1.ElectricitySpec{
+							RatePerKWh: 0.08,
+							PUEFactor:  1.0,
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, profile)).To(Succeed())
+			}
+
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, profileKey, profile); err != nil {
+					return err
+				}
+				now := metav1.Now()
+				profile.Status.HourlyCostUSD = 0.03
+				profile.Status.LastUpdated = &now
+				return k8sClient.Status().Update(ctx, profile)
+			}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+
+			report := &finopsv1alpha1.UsageReport{}
+			err = k8sClient.Get(ctx, reportKey, report)
+			if err != nil && errors.IsNotFound(err) {
+				report = &finopsv1alpha1.UsageReport{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      reportName,
+						Namespace: "default",
+					},
+					Spec: finopsv1alpha1.UsageReportSpec{
+						CostProfileRef: costProfileName,
+						Schedule:       finopsv1alpha1.ReportScheduleDaily,
+					},
+				}
+				Expect(k8sClient.Create(ctx, report)).To(Succeed())
+			}
+		})
+
+		AfterEach(func() {
+			report := &finopsv1alpha1.UsageReport{}
+			if err := k8sClient.Get(ctx, reportKey, report); err == nil {
+				Expect(k8sClient.Delete(ctx, report)).To(Succeed())
+			}
+			profile := &finopsv1alpha1.CostProfile{}
+			if err := k8sClient.Get(ctx, profileKey, profile); err == nil {
+				Expect(k8sClient.Delete(ctx, profile)).To(Succeed())
+			}
+		})
+
+		It("second reconcile must not write status when nothing changed", func() {
+			reconciler := &UsageReportReconciler{
+				Client:       k8sClient,
+				Scheme:       k8sClient.Scheme(),
+				ScrapeClient: scraper.NewClient(5 * time.Second),
+			}
+
+			By("first reconcile writes initial status")
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: reportKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			afterFirst := &finopsv1alpha1.UsageReport{}
+			Expect(k8sClient.Get(ctx, reportKey, afterFirst)).To(Succeed())
+			Expect(afterFirst.Status.Conditions).NotTo(BeEmpty())
+			rvAfterFirst := afterFirst.ResourceVersion
+
+			By("second reconcile must be a no-op on the status subresource")
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: reportKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			afterSecond := &finopsv1alpha1.UsageReport{}
+			Expect(k8sClient.Get(ctx, reportKey, afterSecond)).To(Succeed())
+			Expect(afterSecond.ResourceVersion).To(Equal(rvAfterFirst),
+				"resourceVersion changed between idempotent reconciles — status was rewritten, which triggers hot-loop")
+		})
+	})
+
+	// Regression test for #19: back-to-back reconciles when the referenced
+	// CostProfile is missing must not keep re-writing the same error condition.
+	Context("When CostProfile is missing, repeat reconciles must be no-ops", func() {
+		const reportName = "test-usagereport-missing-idempotent"
+
+		ctx := context.Background()
+		reportKey := types.NamespacedName{Name: reportName, Namespace: "default"}
+
+		BeforeEach(func() {
+			report := &finopsv1alpha1.UsageReport{}
+			err := k8sClient.Get(ctx, reportKey, report)
+			if err != nil && errors.IsNotFound(err) {
+				report = &finopsv1alpha1.UsageReport{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      reportName,
+						Namespace: "default",
+					},
+					Spec: finopsv1alpha1.UsageReportSpec{
+						CostProfileRef: "nonexistent-costprofile-xyz",
+						Schedule:       finopsv1alpha1.ReportScheduleDaily,
+					},
+				}
+				Expect(k8sClient.Create(ctx, report)).To(Succeed())
+			}
+		})
+
+		AfterEach(func() {
+			report := &finopsv1alpha1.UsageReport{}
+			if err := k8sClient.Get(ctx, reportKey, report); err == nil {
+				Expect(k8sClient.Delete(ctx, report)).To(Succeed())
+			}
+		})
+
+		It("does not rewrite status when error condition is already set", func() {
+			reconciler := &UsageReportReconciler{
+				Client:       k8sClient,
+				Scheme:       k8sClient.Scheme(),
+				ScrapeClient: scraper.NewClient(5 * time.Second),
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: reportKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			afterFirst := &finopsv1alpha1.UsageReport{}
+			Expect(k8sClient.Get(ctx, reportKey, afterFirst)).To(Succeed())
+			rvAfterFirst := afterFirst.ResourceVersion
+
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: reportKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			afterSecond := &finopsv1alpha1.UsageReport{}
+			Expect(k8sClient.Get(ctx, reportKey, afterSecond)).To(Succeed())
+			Expect(afterSecond.ResourceVersion).To(Equal(rvAfterFirst),
+				"resourceVersion changed between idempotent reconciles with missing CostProfile")
+		})
+	})
 })
