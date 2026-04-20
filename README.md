@@ -92,6 +92,8 @@ spec:
 kubectl apply -f costprofile.yaml
 ```
 
+> Don't want to write one from scratch? [`config/samples/costprofiles/`](config/samples/costprofiles/) ships ready-to-use manifests for H100, A100 80GB/40GB, L40S, A6000, RTX 4090/5090/5060 Ti, and Apple M2 Ultra — with pricing and amortization assumptions documented inline.
+
 ### See Your Costs
 
 ```bash

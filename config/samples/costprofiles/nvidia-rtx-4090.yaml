@@ -1,0 +1,22 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-rtx-4090
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: rtx-4090-24gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA GeForce RTX 4090"
+    gpuCount: 2
+    # Purchase price: ~$1,800-$2,200 per 4090 at mid-2026 street (post-5090 depreciation).
+    purchasePriceUSD: 4000
+    amortizationYears: 4
+    maintenancePercentPerYear: 0.03
+    tdpWatts: 450
+  electricity:
+    ratePerKWh: 0.15                  # US residential typical
+    pueFactor: 1.0                    # Homelab / no dedicated cooling overhead
+  nodeSelector:
+    kubernetes.io/hostname: rtx4090-workstation

@@ -1,0 +1,26 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: apple-m2-ultra
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: apple
+    gpu.infercost.ai/model: m2-ultra
+spec:
+  hardware:
+    # Apple Silicon has no DCGM exporter; InferCost falls back to TDP-based
+    # power estimation from the tdpWatts field. Real-time power metrics will
+    # require a Metal-aware exporter (tracked on the roadmap).
+    gpuModel: "Apple M2 Ultra"
+    gpuCount: 1                       # Unified SoC counts as one "GPU"
+    # Purchase price: Mac Studio M2 Ultra (192GB unified memory): ~$6,800 MSRP.
+    # The whole box is the GPU here — there is no discrete card to price.
+    purchasePriceUSD: 6800
+    amortizationYears: 5              # Macs typically run longer than x86 boxes
+    maintenancePercentPerYear: 0.02
+    tdpWatts: 295                     # M2 Ultra sustained system power draw
+  electricity:
+    ratePerKWh: 0.15
+    pueFactor: 1.0
+  nodeSelector:
+    kubernetes.io/hostname: macstudio-m2ultra

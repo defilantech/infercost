@@ -1,0 +1,23 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-a100-80gb
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: a100-80gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA A100 80GB"
+    gpuCount: 4
+    # Purchase price: ~$10,000-$15,000 per A100 80GB PCIe at mid-2026 street.
+    # SXM4 systems command a premium. Refurbished A100s trend $8k-$11k.
+    purchasePriceUSD: 48000
+    amortizationYears: 3
+    maintenancePercentPerYear: 0.10
+    tdpWatts: 400                     # PCIe SKU TDP; SXM4 is 500W
+  electricity:
+    ratePerKWh: 0.12
+    pueFactor: 1.4
+  nodeSelector:
+    kubernetes.io/hostname: a100-node-01
