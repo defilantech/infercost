@@ -46,7 +46,8 @@ token_cost = (GPU_amortization + electricity x power_draw x PUE) / tokens_per_ho
 - **Per-team attribution**: Costs broken down by Kubernetes namespace with zero configuration
 - **Prometheus metrics**: 12 gauges scrapeable by any monitoring tool, not locked to Grafana
 - **REST API**: Programmatic access to cost data for custom dashboards, bots, and integrations
-- **CLI**: `infercost status` and `infercost compare` for terminal-based cost analysis
+- **CLI**: `infercost status`, `infercost compare`, `infercost export focus` for terminal analysis and FOCUS-compatible CSV export
+- **FOCUS-compatible export**: Drop InferCost data into Kubecost, Cloudability, or any FOCUS-aware BI pipeline. See [docs/focus-export.md](docs/focus-export.md).
 - **Pre-built Grafana dashboard**: Ships as JSON, auto-provisionable via sidecar
 - **Multi-backend**: Scrapes llama.cpp and vLLM out of the box, selected per-pod via annotation
 
