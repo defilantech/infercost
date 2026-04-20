@@ -1,0 +1,16 @@
+{{- if .Values.pricing.override.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "infercost.fullname" . }}-pricing
+  namespace: {{ include "infercost.namespace" . }}
+  labels:
+    {{- include "infercost.labels" . | nindent 4 }}
+data:
+  cloud-pricing.yaml: |
+    {{- if .Values.pricing.override.inline }}
+    {{- .Values.pricing.override.inline | nindent 4 }}
+    {{- else }}
+    {{- .Files.Get "pricing/cloud-pricing.yaml" | nindent 4 }}
+    {{- end }}
+{{- end }}

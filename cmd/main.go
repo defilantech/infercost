@@ -38,6 +38,7 @@ import (
 
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
 	internalapi "github.com/defilantech/infercost/internal/api"
+	"github.com/defilantech/infercost/internal/calculator"
 	"github.com/defilantech/infercost/internal/controller"
 	_ "github.com/defilantech/infercost/internal/metrics" // Register custom Prometheus metrics
 	"github.com/defilantech/infercost/internal/scraper"
@@ -67,12 +68,17 @@ func main() {
 	var enableHTTP2 bool
 	var dcgmEndpoint string
 	var apiAddr string
+	var pricingFile string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&apiAddr, "api-bind-address", "",
 		"Address for the InferCost REST API (e.g. :8092). If empty, API server is disabled.")
 	flag.StringVar(&dcgmEndpoint, "dcgm-endpoint", "",
 		"DCGM exporter metrics endpoint URL (e.g. http://nvidia-dcgm-exporter.gpu-operator-resources.svc:9400/metrics). "+
 			"If empty, falls back to TDP-based power estimation from CostProfile spec.")
+	flag.StringVar(&pricingFile, "pricing-file", "",
+		"Path to a cloud-pricing.yaml override (same schema as config/pricing/cloud-pricing.yaml). "+
+			"If empty, the embedded default pricing catalog is used. Typical Helm value: mount a "+
+			"ConfigMap at /etc/infercost/pricing.yaml and set this flag.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -97,6 +103,29 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Install the cloud-pricing override before any controller starts, so the
+	// first reconcile already sees user-supplied numbers instead of the embedded
+	// defaults. A bad file fails loud — we don't want to silently fall back to
+	// list pricing when an operator has explicitly configured custom rates.
+	if pricingFile != "" {
+		catalog, err := calculator.LoadCloudPricingFile(pricingFile)
+		if err != nil {
+			setupLog.Error(err, "Failed to load pricing file", "path", pricingFile)
+			os.Exit(1)
+		}
+		calculator.SetOverrideCloudPricing(&catalog)
+		setupLog.Info("loaded pricing override",
+			"path", pricingFile,
+			"lastVerified", catalog.LastVerified,
+			"providers", len(catalog.Providers),
+		)
+	} else if cat, err := calculator.DefaultCloudPricingCatalog(); err == nil {
+		setupLog.Info("using embedded pricing catalog",
+			"lastVerified", cat.LastVerified,
+			"providers", len(cat.Providers),
+		)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

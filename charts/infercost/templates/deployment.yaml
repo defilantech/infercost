@@ -51,6 +51,9 @@ spec:
         {{- if .Values.api.enabled }}
         - --api-bind-address=:{{ .Values.api.port }}
         {{- end }}
+        {{- if .Values.pricing.override.enabled }}
+        - --pricing-file=/etc/infercost/pricing/cloud-pricing.yaml
+        {{- end }}
         ports:
         - name: health
           containerPort: 8081
@@ -80,9 +83,19 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- if .Values.pricing.override.enabled }}
+        - name: pricing
+          mountPath: /etc/infercost/pricing
+          readOnly: true
+        {{- end }}
       volumes:
       - name: tmp
         emptyDir: {}
+      {{- if .Values.pricing.override.enabled }}
+      - name: pricing
+        configMap:
+          name: {{ include "infercost.fullname" . }}-pricing
+      {{- end }}
       {{- with .Values.controllerManager.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
