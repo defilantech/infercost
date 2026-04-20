@@ -23,6 +23,7 @@ with LLMKube, llama.cpp, and vLLM.`,
 	cmd.AddCommand(NewCompareCommand())
 	cmd.AddCommand(NewBudgetCommand())
 	cmd.AddCommand(NewUsersCommand())
+	cmd.AddCommand(NewExportCommand())
 	cmd.AddCommand(NewVersionCommand())
 
 	return cmd
