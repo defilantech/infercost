@@ -1,0 +1,23 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-l40s
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: l40s-48gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA L40S"
+    gpuCount: 4
+    # Purchase price: ~$7,500-$9,000 per L40S at mid-2026 list.
+    # Inference-focused enterprise card with strong price/perf on LLM serving.
+    purchasePriceUSD: 32000
+    amortizationYears: 3
+    maintenancePercentPerYear: 0.10
+    tdpWatts: 350
+  electricity:
+    ratePerKWh: 0.12
+    pueFactor: 1.4
+  nodeSelector:
+    kubernetes.io/hostname: l40s-node-01

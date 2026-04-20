@@ -1,0 +1,23 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-rtx-5090
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: rtx-5090-32gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA GeForce RTX 5090"
+    gpuCount: 1
+    # Purchase price: ~$2,000-$2,500 MSRP, street varies with availability.
+    # 32GB VRAM makes it the current consumer king for local LLM work.
+    purchasePriceUSD: 2200
+    amortizationYears: 4
+    maintenancePercentPerYear: 0.03
+    tdpWatts: 575
+  electricity:
+    ratePerKWh: 0.15
+    pueFactor: 1.0
+  nodeSelector:
+    kubernetes.io/hostname: rtx5090-workstation

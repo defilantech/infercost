@@ -1,0 +1,23 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-a100-40gb
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: a100-40gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA A100 40GB"
+    gpuCount: 4
+    # Purchase price: ~$6,000-$9,000 per A100 40GB PCIe at mid-2026 secondary
+    # market. New A100 40GB is effectively EOL; used/refurb dominates.
+    purchasePriceUSD: 28000
+    amortizationYears: 3
+    maintenancePercentPerYear: 0.08
+    tdpWatts: 250                     # PCIe 40GB TDP
+  electricity:
+    ratePerKWh: 0.12
+    pueFactor: 1.4
+  nodeSelector:
+    kubernetes.io/hostname: a100-40g-node-01

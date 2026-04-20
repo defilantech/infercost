@@ -1,0 +1,23 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-rtx-5060-ti
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: rtx-5060-ti-16gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA GeForce RTX 5060 Ti"
+    gpuCount: 2
+    # Purchase price: ~$400-$480 per 5060 Ti 16GB at mid-2026 street.
+    # Entry-point for hobbyist local-LLM setups; pair for 32GB aggregate VRAM.
+    purchasePriceUSD: 960
+    amortizationYears: 4
+    maintenancePercentPerYear: 0.03
+    tdpWatts: 180
+  electricity:
+    ratePerKWh: 0.08                  # Low-cost regional / homelab
+    pueFactor: 1.0
+  nodeSelector:
+    kubernetes.io/hostname: lab-gpu-node
