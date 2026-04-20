@@ -128,34 +128,10 @@ type CloudPricing struct {
 	OutputPerMillion float64 `json:"outputPerMillion" yaml:"outputPerMillion"` // USD per 1M output tokens
 }
 
-// DefaultCloudPricing returns verified cloud API pricing for comparison.
-//
-// Prices are list prices as of March 2026. They do NOT reflect negotiated
-// enterprise rates, batch discounts, or cached token discounts.
-//
-// Users can override these via ConfigMap. See config/pricing/cloud-pricing.yaml
-// for source URLs and verification dates.
-//
-// Sources verified 2026-03-21:
-//   - OpenAI: https://developers.openai.com/api/docs/pricing
-//   - Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
-//   - Google: https://ai.google.dev/gemini-api/docs/pricing
-func DefaultCloudPricing() []CloudPricing {
-	return []CloudPricing{
-		// Flagship tier
-		{Provider: "OpenAI", Model: "gpt-5.4", InputPerMillion: 2.50, OutputPerMillion: 15.00},
-		{Provider: "Anthropic", Model: "claude-opus-4-6", InputPerMillion: 5.00, OutputPerMillion: 25.00},
-		{Provider: "Google", Model: "gemini-2.5-pro", InputPerMillion: 1.25, OutputPerMillion: 10.00},
-		// Mid tier
-		{Provider: "OpenAI", Model: "gpt-5.4-mini", InputPerMillion: 0.75, OutputPerMillion: 4.50},
-		{Provider: "Anthropic", Model: "claude-sonnet-4-6", InputPerMillion: 3.00, OutputPerMillion: 15.00},
-		{Provider: "Google", Model: "gemini-2.5-flash", InputPerMillion: 0.30, OutputPerMillion: 2.50},
-		// Budget tier
-		{Provider: "OpenAI", Model: "gpt-5.4-nano", InputPerMillion: 0.20, OutputPerMillion: 1.25},
-		{Provider: "Anthropic", Model: "claude-haiku-4-5", InputPerMillion: 1.00, OutputPerMillion: 5.00},
-		{Provider: "Google", Model: "gemini-2.5-flash-lite", InputPerMillion: 0.10, OutputPerMillion: 0.40},
-	}
-}
+// DefaultCloudPricing is defined in pricing.go. It loads from the canonical
+// config/pricing/cloud-pricing.yaml (embedded at build time, drift-guarded by
+// TestEmbeddedPricingMatchesCanonical) and honors a runtime override set via
+// SetOverrideCloudPricing from --pricing-file or a ConfigMap mount.
 
 // CloudComparison computes what the same tokens would have cost on a cloud provider.
 type CloudComparison struct {
