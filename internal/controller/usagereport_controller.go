@@ -51,6 +51,18 @@ type UsageReportReconciler struct {
 	APIStore     *internalapi.Store
 }
 
+// modelKey identifies a model by its name and namespace for aggregation.
+type modelKey struct {
+	model     string
+	namespace string
+}
+
+// tokenCounts is a running sum of input/output tokens for one aggregation key.
+type tokenCounts struct {
+	input  int64
+	output int64
+}
+
 // +kubebuilder:rbac:groups=finops.infercost.ai,resources=usagereports,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=finops.infercost.ai,resources=usagereports/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=finops.infercost.ai,resources=usagereports/finalizers,verbs=update
@@ -61,120 +73,188 @@ type UsageReportReconciler struct {
 func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	// 1. Fetch the UsageReport.
 	var report finopsv1alpha1.UsageReport
 	if err := r.Get(ctx, req.NamespacedName, &report); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
 	log.Info("reconciling UsageReport", "name", report.Name)
 
-	// 2. Fetch the referenced CostProfile to get hourlyCostUSD.
-	//    CostProfile is looked up in the same namespace as the UsageReport.
 	var profile finopsv1alpha1.CostProfile
-	if err := r.Get(ctx, client.ObjectKey{Name: report.Spec.CostProfileRef, Namespace: req.Namespace}, &profile); err != nil {
-		now := metav1.Now()
-		existing := meta.FindStatusCondition(report.Status.Conditions, "Ready")
-		// Only write status if the error condition isn't already set with the same reason.
-		// Without this, every reconcile on a missing-profile report re-writes status,
-		// which re-enqueues events on top of the RequeueAfter schedule.
-		if existing == nil || existing.Status != metav1.ConditionFalse || existing.Reason != "CostProfileNotFound" {
-			meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{
-				Type:               "Ready",
-				Status:             metav1.ConditionFalse,
-				Reason:             "CostProfileNotFound",
-				Message:            fmt.Sprintf("CostProfile %q not found: %v", report.Spec.CostProfileRef, err),
-				LastTransitionTime: now,
-			})
-			if statusErr := r.Status().Update(ctx, &report); statusErr != nil {
-				log.Error(statusErr, "failed to update UsageReport status")
-			}
-		}
-		return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
+	profileKey := client.ObjectKey{Name: report.Spec.CostProfileRef, Namespace: req.Namespace}
+	if err := r.Get(ctx, profileKey, &profile); err != nil {
+		return r.handleMissingCostProfile(ctx, &report, err)
 	}
 
-	hourlyCostUSD := profile.Status.HourlyCostUSD
+	periodStart, periodEnd, hoursInPeriod := periodBounds(report.Spec.Schedule)
 
-	// 3. Determine the reporting period.
-	now := time.Now().UTC()
-	periodStart := computePeriodStart(report.Spec.Schedule, now)
-	periodEnd := now
-	hoursInPeriod := periodEnd.Sub(periodStart).Hours()
-	if hoursInPeriod < 0.001 {
-		hoursInPeriod = 0.001
-	}
-
-	// 4. List inference pods with the model label.
-	var podList corev1.PodList
-	if err := r.List(ctx, &podList, client.MatchingLabels{}); err != nil {
+	modelTokens, nsTokens, err := r.scrapeTokens(ctx, &report)
+	if err != nil {
 		log.Error(err, "failed to list pods")
 		return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
 	}
 
-	// Build namespace filter set for fast lookup.
+	totalCost := profile.Status.HourlyCostUSD * hoursInPeriod
+	byModel, byNamespace, nsCostData, totalIn, totalOut := buildBreakdowns(modelTokens, nsTokens, totalCost)
+	totalTokens := totalIn + totalOut
+
+	var costPerMillion float64
+	if totalTokens > 0 {
+		costPerMillion = totalCost / (float64(totalTokens) / 1_000_000)
+	}
+
+	periodStr := formatPeriod(report.Spec.Schedule, periodStart)
+	computed := computedStatus{
+		period:               periodStr,
+		periodStart:          periodStart,
+		periodEnd:            periodEnd,
+		inputTokens:          totalIn,
+		outputTokens:         totalOut,
+		totalCost:            totalCost,
+		costPerMillionTokens: costPerMillion,
+		byModel:              byModel,
+		byNamespace:          byNamespace,
+	}
+
+	if err := r.applyStatusIfChanged(ctx, &report, computed, totalTokens); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if r.APIStore != nil {
+		r.APIStore.SetNamespaceCosts(nsCostData)
+	}
+
+	log.Info("usage report computed",
+		"period", periodStr,
+		"totalCost", fmt.Sprintf("$%.4f", totalCost),
+		"totalTokens", totalTokens,
+		"models", len(byModel),
+		"namespaces", len(byNamespace),
+	)
+
+	return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
+}
+
+// handleMissingCostProfile writes a CostProfileNotFound condition to the report
+// only when the condition is not already in that state. Without the guard, every
+// reconcile on a misconfigured report would re-trigger an Update event.
+func (r *UsageReportReconciler) handleMissingCostProfile(ctx context.Context, report *finopsv1alpha1.UsageReport, getErr error) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	existing := meta.FindStatusCondition(report.Status.Conditions, "Ready")
+	if existing != nil && existing.Status == metav1.ConditionFalse && existing.Reason == "CostProfileNotFound" {
+		return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
+	}
+	now := metav1.Now()
+	meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionFalse,
+		Reason:             "CostProfileNotFound",
+		Message:            fmt.Sprintf("CostProfile %q not found: %v", report.Spec.CostProfileRef, getErr),
+		LastTransitionTime: now,
+	})
+	if statusErr := r.Status().Update(ctx, report); statusErr != nil {
+		log.Error(statusErr, "failed to update UsageReport status")
+	}
+	return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
+}
+
+// periodBounds returns the reporting period start, end, and length in hours.
+// Guards against a zero-length window so downstream proration never divides by zero.
+func periodBounds(schedule finopsv1alpha1.ReportSchedule) (time.Time, time.Time, float64) {
+	now := time.Now().UTC()
+	start := computePeriodStart(schedule, now)
+	end := now
+	hours := end.Sub(start).Hours()
+	if hours < 0.001 {
+		hours = 0.001
+	}
+	return start, end, hours
+}
+
+// scrapeTokens lists pods that carry the LLMKube model label, filters by the
+// report's namespace selector, scrapes token counters from each, and returns
+// aggregated maps keyed by model+namespace and by namespace alone.
+func (r *UsageReportReconciler) scrapeTokens(ctx context.Context, report *finopsv1alpha1.UsageReport) (map[modelKey]tokenCounts, map[string]tokenCounts, error) {
+	log := logf.FromContext(ctx)
+
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList, client.MatchingLabels{}); err != nil {
+		return nil, nil, err
+	}
+
 	nsFilter := make(map[string]bool, len(report.Spec.Namespaces))
 	for _, ns := range report.Spec.Namespaces {
 		nsFilter[ns] = true
 	}
 
-	// 5. Scrape tokens from each qualifying pod.
-	type modelKey struct {
-		model     string
-		namespace string
-	}
-	modelTokens := make(map[modelKey]struct{ input, output int64 })
-	nsTokens := make(map[string]struct{ input, output int64 })
+	modelTokens := make(map[modelKey]tokenCounts)
+	nsTokens := make(map[string]tokenCounts)
 
 	for i := range podList.Items {
 		pod := &podList.Items[i]
-		modelName := pod.Labels[modelLabel]
-		if modelName == "" {
+		if !podIsScrapeable(pod, nsFilter) {
 			continue
 		}
-		if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
-			continue
-		}
-
-		// Filter by namespaces if spec.namespaces is set.
-		if len(nsFilter) > 0 && !nsFilter[pod.Namespace] {
-			continue
-		}
-
 		endpoint := fmt.Sprintf("http://%s:8080/metrics", pod.Status.PodIP)
 		im, err := scraper.ScrapeLlamaCPP(ctx, r.ScrapeClient, endpoint)
 		if err != nil {
 			log.Error(err, "failed to scrape inference pod", "pod", pod.Name, "namespace", pod.Namespace)
 			continue
 		}
+		modelName := pod.Labels[modelLabel]
+		input := int64(im.PromptTokensTotal)
+		output := int64(im.PredictedTokensTotal)
 
-		inputTokens := int64(im.PromptTokensTotal)
-		outputTokens := int64(im.PredictedTokensTotal)
-
-		// Aggregate by model+namespace.
 		mk := modelKey{model: modelName, namespace: pod.Namespace}
-		existing := modelTokens[mk]
-		existing.input += inputTokens
-		existing.output += outputTokens
-		modelTokens[mk] = existing
+		mExisting := modelTokens[mk]
+		mExisting.input += input
+		mExisting.output += output
+		modelTokens[mk] = mExisting
 
-		// Aggregate by namespace.
 		nsExisting := nsTokens[pod.Namespace]
-		nsExisting.input += inputTokens
-		nsExisting.output += outputTokens
+		nsExisting.input += input
+		nsExisting.output += output
 		nsTokens[pod.Namespace] = nsExisting
 	}
+	return modelTokens, nsTokens, nil
+}
 
-	// 6. Compute costs prorated by each entity's token share.
-	var totalInputTokens, totalOutputTokens int64
-	for _, t := range modelTokens {
-		totalInputTokens += t.input
-		totalOutputTokens += t.output
+// podIsScrapeable returns true when the pod has a model label, is Running with
+// an IP, and either matches the namespace filter or the filter is empty.
+func podIsScrapeable(pod *corev1.Pod, nsFilter map[string]bool) bool {
+	if pod.Labels[modelLabel] == "" {
+		return false
 	}
-	totalTokens := totalInputTokens + totalOutputTokens
-	totalCost := hourlyCostUSD * hoursInPeriod
+	if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
+		return false
+	}
+	if len(nsFilter) > 0 && !nsFilter[pod.Namespace] {
+		return false
+	}
+	return true
+}
 
-	// Build by-model breakdown.
-	var byModel []finopsv1alpha1.ModelCostBreakdown
+// buildBreakdowns turns the aggregated token maps into the CRD-shaped slices
+// plus the API-store view, and returns the total input/output tokens for
+// subsequent blended-cost computation.
+func buildBreakdowns(
+	modelTokens map[modelKey]tokenCounts,
+	nsTokens map[string]tokenCounts,
+	totalCost float64,
+) (
+	[]finopsv1alpha1.ModelCostBreakdown,
+	[]finopsv1alpha1.NamespaceCostBreakdown,
+	[]internalapi.NamespaceCostData,
+	int64,
+	int64,
+) {
+	var totalIn, totalOut int64
+	for _, t := range modelTokens {
+		totalIn += t.input
+		totalOut += t.output
+	}
+	totalTokens := totalIn + totalOut
+
+	byModel := make([]finopsv1alpha1.ModelCostBreakdown, 0, len(modelTokens))
 	for mk, t := range modelTokens {
 		modelTotal := t.input + t.output
 		var modelCost, costPerMillion float64
@@ -194,115 +274,100 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 	}
 
-	// Build by-namespace breakdown.
-	var byNamespace []finopsv1alpha1.NamespaceCostBreakdown
-	var namespaceCostData []internalapi.NamespaceCostData
+	byNamespace := make([]finopsv1alpha1.NamespaceCostBreakdown, 0, len(nsTokens))
+	nsCostData := make([]internalapi.NamespaceCostData, 0, len(nsTokens))
 	for ns, t := range nsTokens {
 		nsTotal := t.input + t.output
 		var nsCost float64
 		if totalTokens > 0 {
 			nsCost = totalCost * (float64(nsTotal) / float64(totalTokens))
 		}
-
-		// Collect unique models for this namespace.
 		var models []string
 		for mk := range modelTokens {
 			if mk.namespace == ns {
 				models = append(models, mk.model)
 			}
 		}
-
 		byNamespace = append(byNamespace, finopsv1alpha1.NamespaceCostBreakdown{
 			Namespace:        ns,
 			EstimatedCostUSD: nsCost,
 			TokenCount:       nsTotal,
 		})
-
-		namespaceCostData = append(namespaceCostData, internalapi.NamespaceCostData{
+		nsCostData = append(nsCostData, internalapi.NamespaceCostData{
 			Namespace:        ns,
 			EstimatedCostUSD: nsCost,
 			TokenCount:       nsTotal,
 			Models:           models,
 		})
 	}
+	return byModel, byNamespace, nsCostData, totalIn, totalOut
+}
 
-	// 7. Compute blended cost per million tokens.
-	var costPerMillionTokens float64
-	if totalTokens > 0 {
-		costPerMillionTokens = totalCost / (float64(totalTokens) / 1_000_000)
-	}
+// computedStatus is the intermediate view of a single reconcile's output,
+// passed from the computation phase to the write phase so the Reconcile entry
+// point stays short enough to read top-to-bottom.
+type computedStatus struct {
+	period               string
+	periodStart          time.Time
+	periodEnd            time.Time
+	inputTokens          int64
+	outputTokens         int64
+	totalCost            float64
+	costPerMillionTokens float64
+	byModel              []finopsv1alpha1.ModelCostBreakdown
+	byNamespace          []finopsv1alpha1.NamespaceCostBreakdown
+}
 
-	// Format period string based on schedule.
-	periodStr := formatPeriod(report.Spec.Schedule, periodStart)
-
-	// 8. Build the new status, then only write if content has actually changed.
-	metaNow := metav1.Now()
-	metaPeriodStart := metav1.NewTime(periodStart)
-	metaPeriodEnd := metav1.NewTime(periodEnd)
-
+// applyStatusIfChanged mutates report.Status to the computed view and writes
+// to the apiserver only when the content has actually changed. This is the
+// primary guard against the status-update → watch-event → requeue hot-loop
+// that controller-runtime setups fall into when a reconcile always writes.
+func (r *UsageReportReconciler) applyStatusIfChanged(ctx context.Context, report *finopsv1alpha1.UsageReport, c computedStatus, totalTokens int64) error {
+	log := logf.FromContext(ctx)
 	previous := report.Status.DeepCopy()
 
-	report.Status.Period = periodStr
-	report.Status.PeriodStart = &metaPeriodStart
-	report.Status.PeriodEnd = &metaPeriodEnd
-	report.Status.InputTokens = totalInputTokens
-	report.Status.OutputTokens = totalOutputTokens
-	report.Status.EstimatedCostUSD = totalCost
-	report.Status.CostPerMillionTokens = costPerMillionTokens
-	report.Status.ByModel = byModel
-	report.Status.ByNamespace = byNamespace
+	metaNow := metav1.Now()
+	metaStart := metav1.NewTime(c.periodStart)
+	metaEnd := metav1.NewTime(c.periodEnd)
+
+	report.Status.Period = c.period
+	report.Status.PeriodStart = &metaStart
+	report.Status.PeriodEnd = &metaEnd
+	report.Status.InputTokens = c.inputTokens
+	report.Status.OutputTokens = c.outputTokens
+	report.Status.EstimatedCostUSD = c.totalCost
+	report.Status.CostPerMillionTokens = c.costPerMillionTokens
+	report.Status.ByModel = c.byModel
+	report.Status.ByNamespace = c.byNamespace
 	report.Status.LastUpdated = &metaNow
 
 	meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
 		Reason:             "ReportComputed",
-		Message:            fmt.Sprintf("Period %s: $%.4f across %d tokens", periodStr, totalCost, totalTokens),
+		Message:            fmt.Sprintf("Period %s: $%.4f across %d tokens", c.period, c.totalCost, totalTokens),
 		LastTransitionTime: metaNow,
 	})
 
-	// Skip the write entirely when the underlying tokens and breakdowns haven't
-	// changed. The Ready condition is preserved because SetStatusCondition is a
-	// no-op when the status/reason/message are identical. This keeps apiserver
-	// writes proportional to actual workload activity rather than reconcile rate.
 	readyTransitioned := conditionTransitioned(previous.Conditions, report.Status.Conditions, "Ready")
 	if !readyTransitioned && usageReportStatusContentEqual(previous, &report.Status) {
 		log.V(1).Info("usage report unchanged, skipping status write",
-			"period", periodStr,
+			"period", c.period,
 			"totalTokens", totalTokens,
 		)
-		if r.APIStore != nil {
-			r.APIStore.SetNamespaceCosts(namespaceCostData)
-		}
-		return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
+		return nil
 	}
-
-	if err := r.Status().Update(ctx, &report); err != nil {
+	if err := r.Status().Update(ctx, report); err != nil {
 		log.Error(err, "failed to update UsageReport status")
-		return ctrl.Result{}, err
+		return err
 	}
-
-	// 9. Update the API store with namespace cost data.
-	if r.APIStore != nil {
-		r.APIStore.SetNamespaceCosts(namespaceCostData)
-	}
-
-	log.Info("usage report computed",
-		"period", periodStr,
-		"totalCost", fmt.Sprintf("$%.4f", totalCost),
-		"totalTokens", totalTokens,
-		"models", len(byModel),
-		"namespaces", len(byNamespace),
-	)
-
-	return ctrl.Result{RequeueAfter: usageReportReconcileInterval}, nil
+	return nil
 }
 
 // computePeriodStart returns the start of the reporting period based on the schedule.
 func computePeriodStart(schedule finopsv1alpha1.ReportSchedule, now time.Time) time.Time {
 	switch schedule {
 	case finopsv1alpha1.ReportScheduleWeekly:
-		// Monday 00:00 UTC of the current week.
 		weekday := now.Weekday()
 		if weekday == time.Sunday {
 			weekday = 7
@@ -310,10 +375,8 @@ func computePeriodStart(schedule finopsv1alpha1.ReportSchedule, now time.Time) t
 		daysSinceMonday := int(weekday) - int(time.Monday)
 		return time.Date(now.Year(), now.Month(), now.Day()-daysSinceMonday, 0, 0, 0, 0, time.UTC)
 	case finopsv1alpha1.ReportScheduleMonthly:
-		// 1st of the current month 00:00 UTC.
 		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	default: // daily
-		// Midnight today UTC.
+	default:
 		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	}
 }
@@ -326,7 +389,7 @@ func formatPeriod(schedule finopsv1alpha1.ReportSchedule, start time.Time) strin
 		return fmt.Sprintf("%d-W%02d", year, week)
 	case finopsv1alpha1.ReportScheduleMonthly:
 		return start.Format("2006-01")
-	default: // daily
+	default:
 		return start.Format("2006-01-02")
 	}
 }
@@ -378,33 +441,44 @@ func usageReportStatusContentEqual(a, b *finopsv1alpha1.UsageReportStatus) bool 
 	if len(a.ByModel) != len(b.ByModel) || len(a.ByNamespace) != len(b.ByNamespace) {
 		return false
 	}
-	aModels := make([]string, 0, len(a.ByModel))
-	bModels := make([]string, 0, len(b.ByModel))
-	for _, m := range a.ByModel {
-		aModels = append(aModels, fmt.Sprintf("%s/%s:%d+%d", m.Namespace, m.Model, m.InputTokens, m.OutputTokens))
+	if !modelBreakdownsEqual(a.ByModel, b.ByModel) {
+		return false
 	}
-	for _, m := range b.ByModel {
-		bModels = append(bModels, fmt.Sprintf("%s/%s:%d+%d", m.Namespace, m.Model, m.InputTokens, m.OutputTokens))
+	return namespaceBreakdownsEqual(a.ByNamespace, b.ByNamespace)
+}
+
+func modelBreakdownsEqual(a, b []finopsv1alpha1.ModelCostBreakdown) bool {
+	as := make([]string, 0, len(a))
+	bs := make([]string, 0, len(b))
+	for _, m := range a {
+		as = append(as, fmt.Sprintf("%s/%s:%d+%d", m.Namespace, m.Model, m.InputTokens, m.OutputTokens))
 	}
-	sort.Strings(aModels)
-	sort.Strings(bModels)
-	for i := range aModels {
-		if aModels[i] != bModels[i] {
+	for _, m := range b {
+		bs = append(bs, fmt.Sprintf("%s/%s:%d+%d", m.Namespace, m.Model, m.InputTokens, m.OutputTokens))
+	}
+	sort.Strings(as)
+	sort.Strings(bs)
+	for i := range as {
+		if as[i] != bs[i] {
 			return false
 		}
 	}
-	aNS := make([]string, 0, len(a.ByNamespace))
-	bNS := make([]string, 0, len(b.ByNamespace))
-	for _, n := range a.ByNamespace {
-		aNS = append(aNS, fmt.Sprintf("%s:%d", n.Namespace, n.TokenCount))
+	return true
+}
+
+func namespaceBreakdownsEqual(a, b []finopsv1alpha1.NamespaceCostBreakdown) bool {
+	as := make([]string, 0, len(a))
+	bs := make([]string, 0, len(b))
+	for _, n := range a {
+		as = append(as, fmt.Sprintf("%s:%d", n.Namespace, n.TokenCount))
 	}
-	for _, n := range b.ByNamespace {
-		bNS = append(bNS, fmt.Sprintf("%s:%d", n.Namespace, n.TokenCount))
+	for _, n := range b {
+		bs = append(bs, fmt.Sprintf("%s:%d", n.Namespace, n.TokenCount))
 	}
-	sort.Strings(aNS)
-	sort.Strings(bNS)
-	for i := range aNS {
-		if aNS[i] != bNS[i] {
+	sort.Strings(as)
+	sort.Strings(bs)
+	for i := range as {
+		if as[i] != bs[i] {
 			return false
 		}
 	}
