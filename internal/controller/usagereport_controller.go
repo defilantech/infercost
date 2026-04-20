@@ -194,10 +194,12 @@ func (r *UsageReportReconciler) scrapeTokens(ctx context.Context, report *finops
 		if !podIsScrapeable(pod, nsFilter) {
 			continue
 		}
-		endpoint := fmt.Sprintf("http://%s:8080/metrics", pod.Status.PodIP)
-		im, err := scraper.ScrapeLlamaCPP(ctx, r.ScrapeClient, endpoint)
+		backend := scraper.ResolveBackend(pod.Annotations, pod.Labels)
+		port := scraper.ResolveMetricsPort(backend, pod.Annotations, pod.Labels)
+		endpoint := fmt.Sprintf("http://%s:%d/metrics", pod.Status.PodIP, port)
+		im, err := scraper.Scrape(ctx, r.ScrapeClient, backend, endpoint)
 		if err != nil {
-			log.Error(err, "failed to scrape inference pod", "pod", pod.Name, "namespace", pod.Namespace)
+			log.Error(err, "failed to scrape inference pod", "pod", pod.Name, "namespace", pod.Namespace, "backend", backend)
 			continue
 		}
 		modelName := pod.Labels[modelLabel]

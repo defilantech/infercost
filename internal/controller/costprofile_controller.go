@@ -217,11 +217,13 @@ func (r *CostProfileReconciler) scrapeInferencePods(ctx context.Context, profile
 			}
 		}
 
-		// Scrape llama.cpp metrics from the pod.
-		endpoint := fmt.Sprintf("http://%s:8080/metrics", pod.Status.PodIP)
-		im, err := scraper.ScrapeLlamaCPP(ctx, r.ScrapeClient, endpoint)
+		// Dispatch to llama.cpp or vLLM based on pod annotations/labels.
+		backend := scraper.ResolveBackend(pod.Annotations, pod.Labels)
+		port := scraper.ResolveMetricsPort(backend, pod.Annotations, pod.Labels)
+		endpoint := fmt.Sprintf("http://%s:%d/metrics", pod.Status.PodIP, port)
+		im, err := scraper.Scrape(ctx, r.ScrapeClient, backend, endpoint)
 		if err != nil {
-			log.Error(err, "failed to scrape inference pod", "pod", pod.Name)
+			log.Error(err, "failed to scrape inference pod", "pod", pod.Name, "backend", backend)
 			continue
 		}
 		im.Pod = pod.Name
