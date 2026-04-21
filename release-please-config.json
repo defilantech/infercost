@@ -7,7 +7,17 @@
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false,
       "extra-files": [
-        "pkg/cli/version.go"
+        "pkg/cli/version.go",
+        {
+          "type": "yaml",
+          "path": "charts/infercost/Chart.yaml",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "yaml",
+          "path": "charts/infercost/Chart.yaml",
+          "jsonpath": "$.appVersion"
+        }
       ],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
