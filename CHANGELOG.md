@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/defilantech/infercost/compare/v0.2.0...v0.2.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* bump Chart.yaml to 0.2.0 and wire release-please to maintain it ([#34](https://github.com/defilantech/infercost/issues/34)) ([59e9de0](https://github.com/defilantech/infercost/commit/59e9de091ab718ea7e2e3decb424726f7c0a6a3e))
+
 ## [0.2.0](https://github.com/defilantech/infercost/compare/v0.1.0...v0.2.0) (2026-04-21)
 
 

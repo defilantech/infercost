@@ -1,11 +1,11 @@
 apiVersion: v2
 name: infercost
 description: >-
-  A Helm chart for InferCost - Kubernetes-native cost intelligence
-  for on-premises AI inference
+  A Helm chart for InferCost - Kubernetes-native cost intelligence for
+  on-premises AI inference
 type: application
-version: 0.2.0
-appVersion: 0.2.0
+version: 0.2.1
+appVersion: 0.2.1
 keywords:
   - finops
   - cost
