@@ -22,6 +22,8 @@ type compareOptions struct {
 	monthly   bool
 }
 
+// NewCompareCommand creates the "compare" CLI subcommand that compares on-premises
+// inference costs against major cloud API providers (OpenAI, Anthropic, Google).
 func NewCompareCommand() *cobra.Command {
 	opts := &compareOptions{}
 

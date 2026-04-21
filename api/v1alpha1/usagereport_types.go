@@ -25,8 +25,11 @@ import (
 type ReportSchedule string
 
 const (
-	ReportScheduleDaily   ReportSchedule = "daily"
-	ReportScheduleWeekly  ReportSchedule = "weekly"
+	// ReportScheduleDaily generates a report once per calendar day.
+	ReportScheduleDaily ReportSchedule = "daily"
+	// ReportScheduleWeekly generates a report once per calendar week.
+	ReportScheduleWeekly ReportSchedule = "weekly"
+	// ReportScheduleMonthly generates a report once per calendar month.
 	ReportScheduleMonthly ReportSchedule = "monthly"
 )
 

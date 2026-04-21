@@ -78,6 +78,10 @@ type CostProfileReconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
+// Reconcile computes the hourly infrastructure cost for a CostProfile by combining
+// hardware economics (amortization, electricity) with real-time GPU power draw from
+// DCGM or TDP fallback. It scrapes inference pod token metrics, updates Prometheus
+// metrics and the API store, and writes computed costs to the CostProfile status.
 func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
