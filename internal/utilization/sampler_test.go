@@ -180,3 +180,38 @@ func TestDefaultIdleThresholdWatts(t *testing.T) {
 	got = DefaultIdleThresholdWatts(nil, 0)
 	approxEq(t, got, 30, "zero GPU count clamps to 1 for floor")
 }
+
+func TestSampler_SummarizeEnergy(t *testing.T) {
+	s := NewSampler()
+	clock := &fixedClock{cur: time.Date(2026, 4, 23, 0, 0, 0, 0, time.UTC)}
+	s.now = clock.now
+	start := clock.now()
+
+	// 300 W for 1 hour, then 10 W for 1 hour. Threshold 50 W.
+	// Active: first hour only. Active energy: 0.3 kWh. Total: 0.31 kWh.
+	s.Record("cluster/a", 300, 50)
+	clock.advance(time.Hour)
+	s.Record("cluster/a", 10, 50)
+	clock.advance(time.Hour)
+
+	w := s.Summarize("cluster/a", start, clock.now())
+	approxEq(t, w.TotalHours, 2.0, "total hours across the two intervals")
+	approxEq(t, w.ActiveHours, 1.0, "active hours (first sample above threshold only)")
+	approxEq(t, w.ActiveEnergyKWh, 0.3, "active energy: 300W × 1h = 300Wh = 0.3kWh")
+	approxEq(t, w.TotalEnergyKWh, 0.31, "total energy: 0.3 + (10W × 1h / 1000) = 0.31 kWh")
+}
+
+func TestSampler_SummarizeNoOverlapReturnsZero(t *testing.T) {
+	s := NewSampler()
+	clock := &fixedClock{cur: time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)}
+	s.now = clock.now
+	s.Record("cluster/a", 100, 50)
+
+	w := s.Summarize("cluster/a",
+		time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 4, 22, 6, 0, 0, 0, time.UTC),
+	)
+	if w.TotalHours != 0 || w.ActiveEnergyKWh != 0 {
+		t.Fatalf("window before any samples should return zero summary, got %+v", w)
+	}
+}

@@ -110,12 +110,18 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		costPerMillion = totalCost / (float64(totalTokens) / 1_000_000)
 	}
 
-	// Utilization: how much of the period did the GPUs actually work?
-	// Zero when no sampler is wired or no samples overlap the window.
+	// Utilization + energy: how much of the period did the GPUs actually
+	// work, and how much electricity did they burn while doing it? All zero
+	// when no sampler is wired or no samples overlap the window.
 	var activeHours, totalHoursObserved, utilizationPercent, gpuEfficiency float64
+	var activeEnergyKWh, marginalCostPerMillion float64
 	if r.Sampler != nil {
 		key := sampleKeyFor(&profile)
-		activeHours, totalHoursObserved = r.Sampler.ActiveAndTotalHours(key, periodStart, periodEnd)
+		w := r.Sampler.Summarize(key, periodStart, periodEnd)
+		activeHours = w.ActiveHours
+		totalHoursObserved = w.TotalHours
+		activeEnergyKWh = w.ActiveEnergyKWh
+
 		// Use the wall-clock period denominator for user-facing utilization
 		// — observedHours can lag (sampler just started, controller restart)
 		// and dividing by it would overstate utilization.
@@ -123,23 +129,38 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			utilizationPercent = (activeHours / hoursInPeriod) * 100.0
 			gpuEfficiency = activeHours / hoursInPeriod
 		}
+
+		// Marginal $/MTok: the electricity actually drawn during active
+		// serving, divided by tokens served. Excludes amortization (sunk
+		// cost) and idle electricity (you'd pay that regardless). PUE
+		// applied because cooling and other overhead scale with draw.
+		if totalTokens > 0 && activeEnergyKWh > 0 {
+			pue := profile.Spec.Electricity.PUEFactor
+			if pue <= 0 {
+				pue = 1.0
+			}
+			marginalCostUSD := activeEnergyKWh * profile.Spec.Electricity.RatePerKWh * pue
+			marginalCostPerMillion = marginalCostUSD / (float64(totalTokens) / 1_000_000.0)
+		}
 	}
 
 	periodStr := formatPeriod(report.Spec.Schedule, periodStart)
 	computed := computedStatus{
-		period:               periodStr,
-		periodStart:          periodStart,
-		periodEnd:            periodEnd,
-		inputTokens:          totalIn,
-		outputTokens:         totalOut,
-		totalCost:            totalCost,
-		costPerMillionTokens: costPerMillion,
-		byModel:              byModel,
-		byNamespace:          byNamespace,
-		utilizationPercent:   utilizationPercent,
-		gpuEfficiencyRatio:   gpuEfficiency,
-		activeHoursInPeriod:  activeHours,
-		totalHoursInPeriod:   hoursInPeriod,
+		period:                       periodStr,
+		periodStart:                  periodStart,
+		periodEnd:                    periodEnd,
+		inputTokens:                  totalIn,
+		outputTokens:                 totalOut,
+		totalCost:                    totalCost,
+		costPerMillionTokens:         costPerMillion,
+		marginalCostPerMillionTokens: marginalCostPerMillion,
+		activeEnergyKWh:              activeEnergyKWh,
+		byModel:                      byModel,
+		byNamespace:                  byNamespace,
+		utilizationPercent:           utilizationPercent,
+		gpuEfficiencyRatio:           gpuEfficiency,
+		activeHoursInPeriod:          activeHours,
+		totalHoursInPeriod:           hoursInPeriod,
 	}
 	// Silence unused-var warning when sampler is wired but period has no observations yet.
 	_ = totalHoursObserved
@@ -338,15 +359,17 @@ func buildBreakdowns(
 // passed from the computation phase to the write phase so the Reconcile entry
 // point stays short enough to read top-to-bottom.
 type computedStatus struct {
-	period               string
-	periodStart          time.Time
-	periodEnd            time.Time
-	inputTokens          int64
-	outputTokens         int64
-	totalCost            float64
-	costPerMillionTokens float64
-	byModel              []finopsv1alpha1.ModelCostBreakdown
-	byNamespace          []finopsv1alpha1.NamespaceCostBreakdown
+	period                       string
+	periodStart                  time.Time
+	periodEnd                    time.Time
+	inputTokens                  int64
+	outputTokens                 int64
+	totalCost                    float64
+	costPerMillionTokens         float64
+	marginalCostPerMillionTokens float64
+	activeEnergyKWh              float64
+	byModel                      []finopsv1alpha1.ModelCostBreakdown
+	byNamespace                  []finopsv1alpha1.NamespaceCostBreakdown
 	// utilization-derived fields (all zero when no sampler is wired)
 	utilizationPercent  float64
 	gpuEfficiencyRatio  float64
@@ -373,6 +396,8 @@ func (r *UsageReportReconciler) applyStatusIfChanged(ctx context.Context, report
 	report.Status.OutputTokens = c.outputTokens
 	report.Status.EstimatedCostUSD = c.totalCost
 	report.Status.CostPerMillionTokens = c.costPerMillionTokens
+	report.Status.MarginalCostPerMillionTokens = c.marginalCostPerMillionTokens
+	report.Status.ActiveEnergyKWh = c.activeEnergyKWh
 	report.Status.ByModel = c.byModel
 	report.Status.ByNamespace = c.byNamespace
 	report.Status.UtilizationPercent = c.utilizationPercent

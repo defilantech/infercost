@@ -88,30 +88,50 @@ func (s *Sampler) Record(key string, powerW, activeThresholdW float64) {
 	s.gcLocked(key, now)
 }
 
-// ActiveAndTotalHours returns (activeHours, totalHours) observed for the key
-// between start (inclusive) and end (exclusive). Windows with no samples
-// return (0, 0) — callers should treat that as "unknown" rather than "idle"
-// to avoid falsely reporting 0% utilization during bootstrap.
+// WindowSummary describes the aggregated behavior of a CostProfile over a
+// [start, end) window. Populated by (*Sampler).Summarize. All fields are
+// zero when no samples overlap the window.
+type WindowSummary struct {
+	ActiveHours     float64 // wall-clock hours with power above idle threshold
+	TotalHours      float64 // wall-clock hours actually observed (never the whole window if samples didn't span it)
+	ActiveEnergyKWh float64 // integrated kilowatt-hours consumed during active intervals only
+	TotalEnergyKWh  float64 // integrated kilowatt-hours consumed across every observed sample
+}
+
+// ActiveAndTotalHours is a convenience wrapper around Summarize that returns
+// only the hours fields. Kept because UsageReport's utilization computation
+// doesn't need energy, and this signature is easier to read at the callsite.
+func (s *Sampler) ActiveAndTotalHours(key string, start, end time.Time) (float64, float64) {
+	w := s.Summarize(key, start, end)
+	return w.ActiveHours, w.TotalHours
+}
+
+// Summarize aggregates samples for the key over the [start, end) window
+// and returns a WindowSummary with both time and energy totals.
 //
 // Integration rule: each sample represents its own state forward in time
 // until the next sample (or `end`, whichever comes first). A sample is
 // classified as "active" if its recorded PowerW exceeds the ActiveW
-// threshold that was in effect when it was recorded. Persisting the
-// threshold on each sample means a mid-period threshold change doesn't
-// retroactively relabel old samples.
+// threshold that was in effect when it was recorded. Energy is computed
+// as rectangular integration: the sample's PowerW (W) is held flat across
+// the interval it represents, so energy_kWh for that interval equals
+// PowerW × duration_h / 1000. This is the same shape of math Prometheus
+// uses for rate() windows — good enough for billing-accuracy when the
+// sample spacing is small relative to the window (30s samples over a
+// 24h window gives 2880 rectangles).
 //
 // Gaps before the first sample (time between `start` and samples[0]) are
 // not credited — we treat them as "no data" rather than asserting an
 // idle state that was never observed.
-func (s *Sampler) ActiveAndTotalHours(key string, start, end time.Time) (float64, float64) {
+func (s *Sampler) Summarize(key string, start, end time.Time) WindowSummary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	samples := s.samples[key]
 	if len(samples) == 0 {
-		return 0, 0
+		return WindowSummary{}
 	}
 
-	var activeSecs, totalSecs float64
+	var summary WindowSummary
 	for i, sample := range samples {
 		// Interval this sample represents: [sample.At, nextAt).
 		var nextAt time.Time
@@ -133,13 +153,18 @@ func (s *Sampler) ActiveAndTotalHours(key string, start, end time.Time) (float64
 			continue
 		}
 		secs := intervalEnd.Sub(intervalStart).Seconds()
-		totalSecs += secs
+		hours := secs / 3600.0
+		energyKWh := sample.PowerW * hours / 1000.0
+
+		summary.TotalHours += hours
+		summary.TotalEnergyKWh += energyKWh
 		if sample.PowerW > sample.ActiveW {
-			activeSecs += secs
+			summary.ActiveHours += hours
+			summary.ActiveEnergyKWh += energyKWh
 		}
 	}
 
-	return activeSecs / 3600.0, totalSecs / 3600.0
+	return summary
 }
 
 // Snapshot returns a copy of the samples for `key` ordered by time. Intended

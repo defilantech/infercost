@@ -127,8 +127,27 @@ type UsageReportStatus struct {
 	EstimatedCostUSD float64 `json:"estimatedCostUSD,omitempty"`
 
 	// costPerMillionTokens is the effective blended cost per million tokens.
+	// Includes hardware amortization across the full reporting period —
+	// sensitive to utilization. Use in tandem with marginalCostPerMillionTokens
+	// when comparing against cloud API pricing.
 	// +optional
 	CostPerMillionTokens float64 `json:"costPerMillionTokens,omitempty"`
+
+	// marginalCostPerMillionTokens is the electricity-only $/MTok computed
+	// across active (above-threshold) samples in the reporting period. It
+	// excludes hardware amortization, so it answers "what did the marginal
+	// token actually cost in electricity?" — the right comparison for
+	// cloud APIs that also bill marginally. At saturated utilization this
+	// converges with costPerMillionTokens; at low utilization it diverges
+	// (amortized goes up, marginal stays flat).
+	// +optional
+	MarginalCostPerMillionTokens float64 `json:"marginalCostPerMillionTokens,omitempty"`
+
+	// activeEnergyKWh is the integrated energy drawn during active-threshold
+	// time across the reporting period, derived from DCGM power samples.
+	// Surfaced directly so operators can sanity-check the marginal cost math.
+	// +optional
+	ActiveEnergyKWh float64 `json:"activeEnergyKWh,omitempty"`
 
 	// gpuEfficiencyRatio is the fraction of GPU time spent on active inference (0.0-1.0).
 	// Derived from the same samples as utilizationPercent — the two fields move
@@ -184,6 +203,7 @@ type UsageReportStatus struct {
 // +kubebuilder:printcolumn:name="Period",type=string,JSONPath=`.status.period`
 // +kubebuilder:printcolumn:name="Cost ($)",type=number,JSONPath=`.status.estimatedCostUSD`,format=float
 // +kubebuilder:printcolumn:name="$/MTok",type=number,JSONPath=`.status.costPerMillionTokens`,format=float
+// +kubebuilder:printcolumn:name="$/MTok (marginal)",type=number,JSONPath=`.status.marginalCostPerMillionTokens`,format=float,priority=1
 // +kubebuilder:printcolumn:name="Input Tokens",type=integer,JSONPath=`.status.inputTokens`
 // +kubebuilder:printcolumn:name="Output Tokens",type=integer,JSONPath=`.status.outputTokens`
 // +kubebuilder:printcolumn:name="Util %",type=number,JSONPath=`.status.utilizationPercent`,format=float,priority=1
