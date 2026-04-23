@@ -50,7 +50,7 @@ func TestSampler_ActiveAboveThreshold(t *testing.T) {
 	// Record 4 samples at 30-minute intervals, all above the 50W threshold.
 	// Expect activeHours ≈ totalHours ≈ 2h (the gaps between samples +
 	// the tail gap from last sample to `end`).
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		s.Record("cluster/a", 200, 50)
 		clock.advance(30 * time.Minute)
 	}
@@ -73,7 +73,7 @@ func TestSampler_IdleBelowThreshold(t *testing.T) {
 	s.now = clock.now
 
 	// All samples below threshold — expect totalHours > 0, activeHours == 0.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		s.Record("cluster/a", 20, 50)
 		clock.advance(30 * time.Minute)
 	}
