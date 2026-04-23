@@ -131,8 +131,30 @@ type UsageReportStatus struct {
 	CostPerMillionTokens float64 `json:"costPerMillionTokens,omitempty"`
 
 	// gpuEfficiencyRatio is the fraction of GPU time spent on active inference (0.0-1.0).
+	// Derived from the same samples as utilizationPercent — the two fields move
+	// together; gpuEfficiencyRatio is kept for compatibility with the Grafana
+	// dashboard, utilizationPercent is the human-readable view.
 	// +optional
 	GPUEfficiencyRatio float64 `json:"gpuEfficiencyRatio,omitempty"`
+
+	// utilizationPercent is the fraction of the reporting period the GPUs were
+	// drawing meaningful power (above CostProfile.spec.electricity.idleWattsThreshold),
+	// expressed as a percentage (0.0-100.0). A value of 4 alongside $16/MTok
+	// amortized means idle hours are inflating the amortized rate; at 100 %
+	// the amortized and marginal rates converge.
+	// +optional
+	UtilizationPercent float64 `json:"utilizationPercent,omitempty"`
+
+	// activeHoursInPeriod is how many hours of the reporting period had GPU
+	// power draw above the idle threshold. Paired with totalHoursInPeriod so
+	// operators can see the ratio without recomputing.
+	// +optional
+	ActiveHoursInPeriod float64 `json:"activeHoursInPeriod,omitempty"`
+
+	// totalHoursInPeriod is the wall-clock length of the reporting period in
+	// hours. For a daily report this grows from 0 to 24 as the day elapses.
+	// +optional
+	TotalHoursInPeriod float64 `json:"totalHoursInPeriod,omitempty"`
 
 	// byModel contains per-model cost breakdowns.
 	// +optional
@@ -164,7 +186,8 @@ type UsageReportStatus struct {
 // +kubebuilder:printcolumn:name="$/MTok",type=number,JSONPath=`.status.costPerMillionTokens`,format=float
 // +kubebuilder:printcolumn:name="Input Tokens",type=integer,JSONPath=`.status.inputTokens`
 // +kubebuilder:printcolumn:name="Output Tokens",type=integer,JSONPath=`.status.outputTokens`
-// +kubebuilder:printcolumn:name="GPU Efficiency",type=number,JSONPath=`.status.gpuEfficiencyRatio`,format=float
+// +kubebuilder:printcolumn:name="Util %",type=number,JSONPath=`.status.utilizationPercent`,format=float,priority=1
+// +kubebuilder:printcolumn:name="GPU Efficiency",type=number,JSONPath=`.status.gpuEfficiencyRatio`,format=float,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // UsageReport contains computed cost data for a time period. The controller populates

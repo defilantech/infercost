@@ -57,6 +57,17 @@ type ElectricitySpec struct {
 	// homelabs), 1.2-1.6 for data centers. Defaults to 1.0.
 	// +optional
 	PUEFactor float64 `json:"pueFactor,omitempty"`
+
+	// idleWattsThreshold is the total GPU power (in watts across all GPUs
+	// covered by this profile) above which a sample is considered "active"
+	// for utilization accounting. Samples at or below this threshold are
+	// treated as idle: the hardware still costs money (amortization + idle
+	// electricity), but those intervals don't inflate $/token dashboards.
+	// When omitted, InferCost defaults to 20% of (TDPWatts × GPUCount),
+	// or 30 W × GPUCount when TDP isn't declared.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	IdleWattsThreshold *float64 `json:"idleWattsThreshold,omitempty"`
 }
 
 // CostProfileSpec defines the hardware economics for computing inference costs.

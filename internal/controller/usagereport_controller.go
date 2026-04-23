@@ -35,6 +35,7 @@ import (
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
 	internalapi "github.com/defilantech/infercost/internal/api"
 	"github.com/defilantech/infercost/internal/scraper"
+	"github.com/defilantech/infercost/internal/utilization"
 )
 
 const (
@@ -49,6 +50,13 @@ type UsageReportReconciler struct {
 	ScrapeClient *scraper.Client
 	DCGMEndpoint string
 	APIStore     *internalapi.Store
+
+	// Sampler is the same *utilization.Sampler the CostProfile reconciler
+	// writes power samples to. Used to compute activeHours / totalHours /
+	// utilizationPercent for the report period. Optional: when nil, those
+	// fields are left at zero and dashboards show the amortized number
+	// without the utilization denominator.
+	Sampler *utilization.Sampler
 }
 
 // modelKey identifies a model by its name and namespace for aggregation.
@@ -102,6 +110,21 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		costPerMillion = totalCost / (float64(totalTokens) / 1_000_000)
 	}
 
+	// Utilization: how much of the period did the GPUs actually work?
+	// Zero when no sampler is wired or no samples overlap the window.
+	var activeHours, totalHoursObserved, utilizationPercent, gpuEfficiency float64
+	if r.Sampler != nil {
+		key := sampleKeyFor(&profile)
+		activeHours, totalHoursObserved = r.Sampler.ActiveAndTotalHours(key, periodStart, periodEnd)
+		// Use the wall-clock period denominator for user-facing utilization
+		// — observedHours can lag (sampler just started, controller restart)
+		// and dividing by it would overstate utilization.
+		if hoursInPeriod > 0 {
+			utilizationPercent = (activeHours / hoursInPeriod) * 100.0
+			gpuEfficiency = activeHours / hoursInPeriod
+		}
+	}
+
 	periodStr := formatPeriod(report.Spec.Schedule, periodStart)
 	computed := computedStatus{
 		period:               periodStr,
@@ -113,7 +136,13 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		costPerMillionTokens: costPerMillion,
 		byModel:              byModel,
 		byNamespace:          byNamespace,
+		utilizationPercent:   utilizationPercent,
+		gpuEfficiencyRatio:   gpuEfficiency,
+		activeHoursInPeriod:  activeHours,
+		totalHoursInPeriod:   hoursInPeriod,
 	}
+	// Silence unused-var warning when sampler is wired but period has no observations yet.
+	_ = totalHoursObserved
 
 	if err := r.applyStatusIfChanged(ctx, &report, computed, totalTokens); err != nil {
 		return ctrl.Result{}, err
@@ -318,6 +347,11 @@ type computedStatus struct {
 	costPerMillionTokens float64
 	byModel              []finopsv1alpha1.ModelCostBreakdown
 	byNamespace          []finopsv1alpha1.NamespaceCostBreakdown
+	// utilization-derived fields (all zero when no sampler is wired)
+	utilizationPercent  float64
+	gpuEfficiencyRatio  float64
+	activeHoursInPeriod float64
+	totalHoursInPeriod  float64
 }
 
 // applyStatusIfChanged mutates report.Status to the computed view and writes
@@ -341,6 +375,10 @@ func (r *UsageReportReconciler) applyStatusIfChanged(ctx context.Context, report
 	report.Status.CostPerMillionTokens = c.costPerMillionTokens
 	report.Status.ByModel = c.byModel
 	report.Status.ByNamespace = c.byNamespace
+	report.Status.UtilizationPercent = c.utilizationPercent
+	report.Status.GPUEfficiencyRatio = c.gpuEfficiencyRatio
+	report.Status.ActiveHoursInPeriod = c.activeHoursInPeriod
+	report.Status.TotalHoursInPeriod = c.totalHoursInPeriod
 	report.Status.LastUpdated = &metaNow
 
 	meta.SetStatusCondition(&report.Status.Conditions, metav1.Condition{
