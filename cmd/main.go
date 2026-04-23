@@ -42,6 +42,7 @@ import (
 	"github.com/defilantech/infercost/internal/controller"
 	_ "github.com/defilantech/infercost/internal/metrics" // Register custom Prometheus metrics
 	"github.com/defilantech/infercost/internal/scraper"
+	"github.com/defilantech/infercost/internal/utilization"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -220,6 +221,10 @@ func main() {
 
 	scrapeClient := scraper.NewClient(10 * time.Second)
 	apiStore := internalapi.NewStore()
+	// Shared utilization sampler: CostProfile writes per-tick power samples;
+	// UsageReport reads accumulated active/idle hours for its period. A
+	// single process-wide instance is sufficient (single-manager deployment).
+	powerSampler := utilization.NewSampler()
 
 	if err := (&controller.CostProfileReconciler{
 		Client:       mgr.GetClient(),
@@ -227,6 +232,7 @@ func main() {
 		ScrapeClient: scrapeClient,
 		DCGMEndpoint: dcgmEndpoint,
 		APIStore:     apiStore,
+		Sampler:      powerSampler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CostProfile")
 		os.Exit(1)
@@ -237,6 +243,7 @@ func main() {
 		ScrapeClient: scrapeClient,
 		DCGMEndpoint: dcgmEndpoint,
 		APIStore:     apiStore,
+		Sampler:      powerSampler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "UsageReport")
 		os.Exit(1)

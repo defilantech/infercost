@@ -64,6 +64,17 @@ spec:
               electricity:
                 description: electricity declares electricity cost parameters.
                 properties:
+                  idleWattsThreshold:
+                    description: |-
+                      idleWattsThreshold is the total GPU power (in watts across all GPUs
+                      covered by this profile) above which a sample is considered "active"
+                      for utilization accounting. Samples at or below this threshold are
+                      treated as idle: the hardware still costs money (amortization + idle
+                      electricity), but those intervals don't inflate $/token dashboards.
+                      When omitted, InferCost defaults to 20% of (TDPWatts × GPUCount),
+                      or 30 W × GPUCount when TDP isn't declared.
+                    minimum: 0
+                    type: number
                   pueFactor:
                     description: |-
                       pueFactor is the Power Usage Effectiveness factor. 1.0 means no overhead (typical for

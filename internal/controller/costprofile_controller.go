@@ -35,6 +35,7 @@ import (
 	"github.com/defilantech/infercost/internal/calculator"
 	infercostmetrics "github.com/defilantech/infercost/internal/metrics"
 	"github.com/defilantech/infercost/internal/scraper"
+	"github.com/defilantech/infercost/internal/utilization"
 )
 
 const (
@@ -66,6 +67,12 @@ type CostProfileReconciler struct {
 	ScrapeClient *scraper.Client
 	DCGMEndpoint string // DCGM exporter service URL
 	APIStore     *internalapi.Store
+
+	// Sampler records per-tick GPU power draw so UsageReports can answer
+	// "what fraction of this period was the GPU actually working?". Shared
+	// with the UsageReport reconciler; both are constructed with the same
+	// *Sampler instance in cmd/main.go.
+	Sampler *utilization.Sampler
 
 	// tokenSnapshots tracks previous token readings for rate computation.
 	tokenSnapshots map[string]calculator.TokenSnapshot
@@ -106,6 +113,15 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// path as a DCGMReachable condition so operators can tell at a glance
 	// whether their dashboards will show real-time load or a flat TDP estimate.
 	totalPowerW, dcgmCondition := r.readDCGMPower(ctx, profile)
+
+	// 2a. Record the sample for utilization accounting. Computes the active
+	// threshold from spec with a sensible default when the operator hasn't
+	// declared one.
+	if r.Sampler != nil {
+		threshold := resolveIdleThreshold(&profile)
+		sampleKey := sampleKeyFor(&profile)
+		r.Sampler.Record(sampleKey, totalPowerW, threshold)
+	}
 
 	// 3. Compute hourly costs.
 	amort, elec, total := calculator.ComputeHourlyCost(hw, totalPowerW)
@@ -401,4 +417,24 @@ func (r *CostProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&finopsv1alpha1.CostProfile{}).
 		Named("costprofile").
 		Complete(r)
+}
+
+// sampleKeyFor returns the string key used by the Sampler for this profile.
+// Namespaced so two CostProfiles with the same name in different namespaces
+// don't pool samples.
+func sampleKeyFor(profile *finopsv1alpha1.CostProfile) string {
+	return profile.Namespace + "/" + profile.Name
+}
+
+// resolveIdleThreshold picks the active-threshold wattage for a profile: the
+// operator's explicit setting if present, otherwise the sampler's default
+// derived from TDP and GPU count.
+func resolveIdleThreshold(profile *finopsv1alpha1.CostProfile) float64 {
+	if profile.Spec.Electricity.IdleWattsThreshold != nil {
+		return *profile.Spec.Electricity.IdleWattsThreshold
+	}
+	return utilization.DefaultIdleThresholdWatts(
+		profile.Spec.Hardware.TDPWatts,
+		profile.Spec.Hardware.GPUCount,
+	)
 }
