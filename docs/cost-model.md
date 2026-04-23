@@ -13,11 +13,14 @@ one means, which question it answers, and when it misleads.
 | `activeHoursInPeriod` | Hours with power above the idle threshold | Numerator of utilization |
 | `totalHoursInPeriod` | Wall-clock hours elapsed in the period | Denominator of utilization |
 | `gpuEfficiencyRatio` | Same as `utilizationPercent / 100` | Compatibility with the Grafana dashboard |
+| `marginalCostPerMillionTokens` | Electricity-only \$ / 1M tokens during active time | What each token costs in power, once you own the hardware |
+| `activeEnergyKWh` | Integrated kWh across active intervals | Numerator of the marginal calculation, exposed so operators can sanity-check |
 
-Future fields (tracked in GitHub issues [#37–#41](https://github.com/defilantech/infercost/issues?q=is%3Aissue+label%3Aarea%2Fcost-model)):
+Future fields (tracked in GitHub issues [#37, #39, #41](https://github.com/defilantech/infercost/issues?q=is%3Aissue+label%3Aarea%2Fcost-model)):
 
-- `marginalCostPerMillionTokens` — electricity-only \$/MTok during active hours
-- Break-even tokens-per-day per cloud provider
+- Break-even tokens-per-day per cloud provider (#39)
+- Active-hour amortization (#37) — will replace the current wall-clock amortization denominator when enabled
+- Utilization-aware status message (#41)
 
 ## What's "active"?
 
@@ -67,14 +70,31 @@ comparison is one of:
 
 1. **Break-even tokens/day** (issue [#39](https://github.com/defilantech/infercost/issues/39)) — at
    what daily token volume does the on-prem bill match the cloud bill?
-2. **Marginal comparison** (issue [#38](https://github.com/defilantech/infercost/issues/38)) — compare
-   on-prem electricity-during-serving to cloud per-token.
+2. **Marginal comparison** (`marginalCostPerMillionTokens`) — compare
+   on-prem electricity-during-serving to cloud per-token. InferCost
+   computes this today from DCGM samples; see the example below.
 
-Until those land, the most honest framing is:
+### Marginal vs amortized — an example
 
-> *Today: \$0.066 on 3,993 tokens, utilization 4%. At 100% utilization
-> on this hardware, the same \$0.066 would have bought ~100× more
-> tokens.*
+Take the live shadowstack cluster on a low-traffic day at 4% utilization:
+
+| Metric | Value | What it means |
+|---|---|---|
+| `costPerMillionTokens` | ~\$16 | Full cost of ownership at today's throughput |
+| `marginalCostPerMillionTokens` | ~\$0.004 | Electricity you actually burned generating tokens |
+| Anthropic Opus output rate | ~\$15 / MTok | Marginal cloud pricing (all you ever pay) |
+| OpenAI GPT-5.4-nano output rate | ~\$0.40 / MTok | Marginal cloud pricing |
+
+Comparing amortized on-prem (~\$16) to Opus (~\$15) says "cloud wins."
+Comparing marginal on-prem (~\$0.004) to Opus (~\$15) says "on-prem
+wins by 3750×." Neither number is wrong; they answer different
+questions.
+
+The honest answer is: *at 4% utilization you're wasting most of the
+hardware you already bought. Route more traffic to it (or buy a
+smaller GPU) before comparing to cloud APIs.* At 100% utilization the
+amortized and marginal numbers converge — on-prem wins decisively at
+any non-trivial scale.
 
 ## When to raise `idleWattsThreshold`
 

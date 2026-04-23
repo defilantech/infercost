@@ -26,6 +26,11 @@ spec:
       jsonPath: .status.costPerMillionTokens
       name: $/MTok
       type: number
+    - format: float
+      jsonPath: .status.marginalCostPerMillionTokens
+      name: $/MTok (marginal)
+      priority: 1
+      type: number
     - jsonPath: .status.inputTokens
       name: Input Tokens
       type: integer
@@ -98,6 +103,12 @@ spec:
             description: UsageReportStatus contains the computed cost report data.
               Populated by the controller.
             properties:
+              activeEnergyKWh:
+                description: |-
+                  activeEnergyKWh is the integrated energy drawn during active-threshold
+                  time across the reporting period, derived from DCGM power samples.
+                  Surfaced directly so operators can sanity-check the marginal cost math.
+                type: number
               activeHoursInPeriod:
                 description: |-
                   activeHoursInPeriod is how many hours of the reporting period had GPU
@@ -262,8 +273,11 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               costPerMillionTokens:
-                description: costPerMillionTokens is the effective blended cost per
-                  million tokens.
+                description: |-
+                  costPerMillionTokens is the effective blended cost per million tokens.
+                  Includes hardware amortization across the full reporting period —
+                  sensitive to utilization. Use in tandem with marginalCostPerMillionTokens
+                  when comparing against cloud API pricing.
                 type: number
               estimatedCostUSD:
                 description: estimatedCostUSD is the total computed on-prem cost for
@@ -285,6 +299,16 @@ spec:
                 description: lastUpdated is the timestamp of the last report computation.
                 format: date-time
                 type: string
+              marginalCostPerMillionTokens:
+                description: |-
+                  marginalCostPerMillionTokens is the electricity-only $/MTok computed
+                  across active (above-threshold) samples in the reporting period. It
+                  excludes hardware amortization, so it answers "what did the marginal
+                  token actually cost in electricity?" — the right comparison for
+                  cloud APIs that also bill marginally. At saturated utilization this
+                  converges with costPerMillionTokens; at low utilization it diverges
+                  (amortized goes up, marginal stays flat).
+                type: number
               outputTokens:
                 description: outputTokens is the total output/completion tokens across
                   all models.
