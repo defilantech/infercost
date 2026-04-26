@@ -24,12 +24,12 @@ spec:
     # ~42 W combined (CPU + GPU + ANE). 90 W TDP is a safe fallback that
     # bounds the worst case (sustained CPU + GPU + display + chargers).
     tdpWatts: 90
+  electricity:
+    ratePerKWh: 0.15
+    pueFactor: 1.0                    # Single laptop, no datacenter overhead
     # Idle threshold: M-series SoCs idle around 5-8 W, well below 20% of
     # TDP. Set explicitly so the utilization sampler doesn't overcount idle
     # time as active.
     idleWattsThreshold: 12
-  electricity:
-    ratePerKWh: 0.15
-    pueFactor: 1.0                    # Single laptop, no datacenter overhead
   nodeSelector:
     kubernetes.io/hostname: macbook-m5max
