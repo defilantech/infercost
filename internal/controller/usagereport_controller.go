@@ -46,10 +46,11 @@ const (
 // UsageReportReconciler reconciles a UsageReport object
 type UsageReportReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	ScrapeClient *scraper.Client
-	DCGMEndpoint string
-	APIStore     *internalapi.Store
+	Scheme        *runtime.Scheme
+	ScrapeClient  *scraper.Client
+	DCGMEndpoint  string
+	MetalEndpoint string // LLMKube Metal Agent /metrics URL (Apple Silicon path)
+	APIStore      *internalapi.Store
 
 	// Sampler is the same *utilization.Sampler the CostProfile reconciler
 	// writes power samples to. Used to compute activeHours / totalHours /

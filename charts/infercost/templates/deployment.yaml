@@ -48,6 +48,9 @@ spec:
         {{- if .Values.dcgm.endpoint }}
         - --dcgm-endpoint={{ .Values.dcgm.endpoint }}
         {{- end }}
+        {{- if .Values.metal.endpoint }}
+        - --metal-endpoint={{ .Values.metal.endpoint }}
+        {{- end }}
         {{- if .Values.api.enabled }}
         - --api-bind-address=:{{ .Values.api.port }}
         {{- end }}

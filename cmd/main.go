@@ -68,6 +68,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var dcgmEndpoint string
+	var metalEndpoint string
 	var apiAddr string
 	var pricingFile string
 	var tlsOpts []func(*tls.Config)
@@ -76,6 +77,11 @@ func main() {
 	flag.StringVar(&dcgmEndpoint, "dcgm-endpoint", "",
 		"DCGM exporter metrics endpoint URL (e.g. http://nvidia-dcgm-exporter.gpu-operator-resources.svc:9400/metrics). "+
 			"If empty, falls back to TDP-based power estimation from CostProfile spec.")
+	flag.StringVar(&metalEndpoint, "metal-endpoint", "",
+		"LLMKube Metal Agent /metrics endpoint URL for Apple Silicon power data "+
+			"(e.g. http://my-mac.local:9090/metrics). Required for real-time $/MTok on M-series Macs; "+
+			"NVIDIA hosts continue to use --dcgm-endpoint. If both are set, CostProfiles "+
+			"with Apple gpuModel use Metal and others use DCGM.")
 	flag.StringVar(&pricingFile, "pricing-file", "",
 		"Path to a cloud-pricing.yaml override (same schema as config/pricing/cloud-pricing.yaml). "+
 			"If empty, the embedded default pricing catalog is used. Typical Helm value: mount a "+
@@ -227,23 +233,25 @@ func main() {
 	powerSampler := utilization.NewSampler()
 
 	if err := (&controller.CostProfileReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		ScrapeClient: scrapeClient,
-		DCGMEndpoint: dcgmEndpoint,
-		APIStore:     apiStore,
-		Sampler:      powerSampler,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		ScrapeClient:  scrapeClient,
+		DCGMEndpoint:  dcgmEndpoint,
+		MetalEndpoint: metalEndpoint,
+		APIStore:      apiStore,
+		Sampler:       powerSampler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "CostProfile")
 		os.Exit(1)
 	}
 	if err := (&controller.UsageReportReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		ScrapeClient: scrapeClient,
-		DCGMEndpoint: dcgmEndpoint,
-		APIStore:     apiStore,
-		Sampler:      powerSampler,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		ScrapeClient:  scrapeClient,
+		DCGMEndpoint:  dcgmEndpoint,
+		MetalEndpoint: metalEndpoint,
+		APIStore:      apiStore,
+		Sampler:       powerSampler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "UsageReport")
 		os.Exit(1)

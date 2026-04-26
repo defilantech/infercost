@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,13 +61,29 @@ const (
 	ReasonDCGMNoReadings    = "DCGMNoReadings"
 )
 
+// Metal status reporting on CostProfile.status.conditions. Apple Silicon
+// hosts have no DCGM equivalent; InferCost reads SoC power from the LLMKube
+// Metal Agent's apple_power_*_watts gauges (see defilantech/llmkube). We use
+// a separate condition type rather than overloading DCGMReachable so an
+// operator inspecting a Mac CostProfile doesn't see a confusing "DCGM
+// unreachable" message when DCGM was never the right tool.
+const (
+	ConditionMetalReachable = "MetalReachable"
+
+	ReasonMetalHealthy       = "MetalHealthy"
+	ReasonMetalNotConfigured = "MetalNotConfigured"
+	ReasonMetalScrapeError   = "MetalScrapeError"
+	ReasonMetalSamplerOff    = "MetalSamplerOff"
+)
+
 // CostProfileReconciler reconciles a CostProfile object.
 type CostProfileReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	ScrapeClient *scraper.Client
-	DCGMEndpoint string // DCGM exporter service URL
-	APIStore     *internalapi.Store
+	Scheme        *runtime.Scheme
+	ScrapeClient  *scraper.Client
+	DCGMEndpoint  string // DCGM exporter service URL (NVIDIA path)
+	MetalEndpoint string // LLMKube Metal Agent /metrics URL (Apple Silicon path)
+	APIStore      *internalapi.Store
 
 	// Sampler records per-tick GPU power draw so UsageReports can answer
 	// "what fraction of this period was the GPU actually working?". Shared
@@ -109,10 +126,12 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		PUEFactor:                 profile.Spec.Electricity.PUEFactor,
 	}
 
-	// 2. Scrape DCGM for real-time GPU power draw, and surface any fallback
-	// path as a DCGMReachable condition so operators can tell at a glance
-	// whether their dashboards will show real-time load or a flat TDP estimate.
-	totalPowerW, dcgmCondition := r.readDCGMPower(ctx, profile)
+	// 2. Scrape real-time power draw from whichever backend is configured for
+	// this profile (DCGM for NVIDIA, the LLMKube Metal Agent for Apple
+	// Silicon, TDP fallback otherwise). Both paths surface a status condition
+	// so operators can tell at a glance whether their dashboards show
+	// real-time load or a flat TDP estimate.
+	totalPowerW, powerCondition := r.readPower(ctx, profile)
 
 	// 2a. Record the sample for utilization accounting. Computes the active
 	// threshold from spec with a sensible default when the operator hasn't
@@ -157,8 +176,8 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Message:            fmt.Sprintf("Hourly cost: $%.4f (amort: $%.4f, elec: $%.4f)", total, amort, elec),
 		LastTransitionTime: now,
 	})
-	dcgmCondition.LastTransitionTime = now
-	meta.SetStatusCondition(&profile.Status.Conditions, dcgmCondition)
+	powerCondition.LastTransitionTime = now
+	meta.SetStatusCondition(&profile.Status.Conditions, powerCondition)
 
 	if err := r.Status().Update(ctx, &profile); err != nil {
 		log.Error(err, "failed to update CostProfile status")
@@ -408,6 +427,92 @@ func (r *CostProfileReconciler) readDCGMPower(ctx context.Context, profile finop
 		Status:  metav1.ConditionTrue,
 		Reason:  ReasonDCGMHealthy,
 		Message: fmt.Sprintf("DCGM healthy at %s (%.0fW current draw).", r.DCGMEndpoint, totalPowerW),
+	}
+}
+
+// readPower picks the right power source for this CostProfile. Apple
+// hardware (gpuModel "Apple …") with a configured Metal endpoint goes through
+// the LLMKube Metal Agent path; everything else falls through to the existing
+// DCGM path (which itself handles "no endpoint configured" via TDP fallback).
+//
+// We discriminate on gpuModel rather than adding a vendor field to the CRD
+// because gpuModel is already the human-readable identifier and Apple's
+// naming ("Apple M5 Max", "Apple M2 Ultra") is consistent and unique.
+func (r *CostProfileReconciler) readPower(ctx context.Context, profile finopsv1alpha1.CostProfile) (float64, metav1.Condition) {
+	if r.MetalEndpoint != "" && looksApple(profile.Spec.Hardware.GPUModel) {
+		return r.readMetalPower(ctx, profile)
+	}
+	return r.readDCGMPower(ctx, profile)
+}
+
+// looksApple returns true when the GPU model name identifies an Apple Silicon
+// SoC. Substring match keeps it tolerant of formatting variation ("Apple M5
+// Max", "Apple M2 Ultra", "apple m3 pro") without requiring operators to
+// learn a magic string.
+func looksApple(gpuModel string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(gpuModel)), "apple ")
+}
+
+// readMetalPower returns the current SoC power draw from the LLMKube Metal
+// Agent's apple_power_combined_watts gauge along with a MetalReachable
+// condition that describes how the number was obtained. Mirrors the
+// every-path-emits-a-condition contract of readDCGMPower so silent fallbacks
+// don't hide misconfiguration.
+func (r *CostProfileReconciler) readMetalPower(ctx context.Context, profile finopsv1alpha1.CostProfile) (float64, metav1.Condition) {
+	log := logf.FromContext(ctx)
+
+	if r.MetalEndpoint == "" {
+		power := r.fallbackPowerDraw(profile)
+		return power, metav1.Condition{
+			Type:    ConditionMetalReachable,
+			Status:  metav1.ConditionFalse,
+			Reason:  ReasonMetalNotConfigured,
+			Message: fmt.Sprintf("Metal endpoint not set; using TDP fallback (%.0fW). Install the LLMKube Metal Agent with --apple-power-enabled and pass --metal-endpoint to InferCost.", power),
+		}
+	}
+
+	reading, err := scraper.ScrapeApplePower(ctx, r.ScrapeClient, r.MetalEndpoint)
+	if err != nil {
+		log.Error(err, "failed to scrape Metal agent, falling back to TDP", "endpoint", r.MetalEndpoint)
+		power := r.fallbackPowerDraw(profile)
+		return power, metav1.Condition{
+			Type:    ConditionMetalReachable,
+			Status:  metav1.ConditionFalse,
+			Reason:  ReasonMetalScrapeError,
+			Message: fmt.Sprintf("Metal scrape failed at %s: %v. Using TDP fallback (%.0fW).", r.MetalEndpoint, err, power),
+		}
+	}
+
+	// CombinedW is zero when the agent is reachable but the powermetrics
+	// sampler isn't running (operator forgot --apple-power-enabled, or the
+	// NOPASSWD sudoers entry isn't installed, or they overrode
+	// --powermetrics-bin which the agent now refuses). Distinguish this
+	// from a network failure so the condition reason can point at the
+	// actual fix.
+	if reading.CombinedW == 0 {
+		power := r.fallbackPowerDraw(profile)
+		return power, metav1.Condition{
+			Type:    ConditionMetalReachable,
+			Status:  metav1.ConditionUnknown,
+			Reason:  ReasonMetalSamplerOff,
+			Message: fmt.Sprintf("Metal agent reachable at %s but apple_power_combined_watts is 0. Verify --apple-power-enabled is set and /etc/sudoers.d/llmkube-powermetrics is installed. Using TDP fallback (%.0fW).", r.MetalEndpoint, power),
+		}
+	}
+
+	// Publish the SoC-wide combined draw against the per-profile gauge that
+	// already feeds the cost dashboard. Use the profile name as the "node"
+	// label since Apple agents are single-host (no multi-GPU sharding).
+	node := profile.Spec.NodeSelector["kubernetes.io/hostname"]
+	if node == "" {
+		node = profile.Name
+	}
+	infercostmetrics.GPUPowerWatts.WithLabelValues(profile.Name, node, "soc").Set(reading.CombinedW)
+
+	return reading.CombinedW, metav1.Condition{
+		Type:    ConditionMetalReachable,
+		Status:  metav1.ConditionTrue,
+		Reason:  ReasonMetalHealthy,
+		Message: fmt.Sprintf("Metal agent healthy at %s (%.1fW combined; gpu=%.1f cpu=%.1f ane=%.1f).", r.MetalEndpoint, reading.CombinedW, reading.GPUW, reading.CPUW, reading.ANEW),
 	}
 }
 
