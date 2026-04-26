@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0](https://github.com/defilantech/infercost/compare/v0.2.1...v0.3.0) (2026-04-26)
+
+
+### Features
+
+* add Apple Silicon (Metal) power collector for $/MTok on M-series Macs ([#47](https://github.com/defilantech/infercost/issues/47)) ([422a4f0](https://github.com/defilantech/infercost/commit/422a4f092f9b3ccb0f80c987535ca2d3bd928ea5))
+* expose utilizationPercent + active/total hours on UsageReport ([#40](https://github.com/defilantech/infercost/issues/40)) ([#42](https://github.com/defilantech/infercost/issues/42)) ([852a926](https://github.com/defilantech/infercost/commit/852a9261f43543b210cba85d1eafd3d8af20bc20))
+* marginalCostPerMillionTokens from DCGM-sampled energy ([#38](https://github.com/defilantech/infercost/issues/38)) ([#43](https://github.com/defilantech/infercost/issues/43)) ([f7e6236](https://github.com/defilantech/infercost/commit/f7e62363697eb389c0c6c782f4116b39ca662749))
+
 ## [0.2.1](https://github.com/defilantech/infercost/compare/v0.2.0...v0.2.1) (2026-04-21)
 
 
