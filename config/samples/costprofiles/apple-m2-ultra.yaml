@@ -8,9 +8,19 @@ metadata:
     gpu.infercost.ai/model: m2-ultra
 spec:
   hardware:
-    # Apple Silicon has no DCGM exporter; InferCost falls back to TDP-based
-    # power estimation from the tdpWatts field. Real-time power metrics will
-    # require a Metal-aware exporter (tracked on the roadmap).
+    # Real-time SoC power available — install the LLMKube Metal Agent with
+    # --apple-power-enabled and pass --metal-endpoint=http://<host>:9090/metrics
+    # to InferCost. With the Metal endpoint set, this profile reads its
+    # currentPowerDrawWatts from the agent's apple_power_combined_watts gauge
+    # (CPU + GPU + ANE). Without it, the tdpWatts below is used as fallback.
+    #
+    # Setup notes:
+    #   - The agent ships a NOPASSWD sudoers entry for /usr/bin/powermetrics
+    #     pinned to the exact argv it uses; install it via the install snippet
+    #     in deployment/macos/README.md of github.com/defilantech/llmkube.
+    #   - Do NOT pass --powermetrics-bin=<custom> to the agent — Phase 1
+    #     security hardening refuses non-default paths and you'll see this
+    #     CostProfile sit at MetalSamplerOff.
     gpuModel: "Apple M2 Ultra"
     gpuCount: 1                       # Unified SoC counts as one "GPU"
     # Purchase price: Mac Studio M2 Ultra (192GB unified memory): ~$6,800 MSRP.

@@ -57,7 +57,7 @@ controllerManager:
   affinity: {}
   env: []
 
-# DCGM Exporter configuration
+# DCGM Exporter configuration (NVIDIA hosts)
 dcgm:
   # DCGM exporter metrics endpoint URL.
   # Set to the DCGM exporter service in your cluster.
@@ -66,6 +66,22 @@ dcgm:
   # Examples:
   #   In-cluster: http://nvidia-dcgm-exporter.gpu-operator-resources.svc:9400/metrics
   #   NodePort:   http://<node-ip>:30940/metrics
+
+# LLMKube Metal Agent configuration (Apple Silicon hosts)
+# Apple Silicon has no DCGM equivalent; InferCost reads SoC power from the
+# LLMKube Metal Agent's apple_power_combined_watts gauge. Required for
+# real-time $/MTok on M-series Macs. CostProfiles with an Apple gpuModel
+# automatically use this endpoint when set; NVIDIA profiles continue to
+# use --dcgm-endpoint.
+metal:
+  # LLMKube Metal Agent /metrics endpoint URL.
+  # If empty, Apple-hardware CostProfiles fall back to TDP-based estimation.
+  endpoint: ""
+  # Examples:
+  #   Mac on the LAN: http://my-mac.local:9090/metrics
+  #   Tailscale:      http://100.64.0.10:9090/metrics
+  # Setup: install the LLMKube Metal Agent with --apple-power-enabled and the
+  # NOPASSWD sudoers entry from deployment/macos/sudoers.d/llmkube-powermetrics.
 
 # REST API configuration
 api:
