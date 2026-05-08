@@ -245,7 +245,11 @@ func (r *UsageReportReconciler) scrapeTokens(ctx context.Context, report *finops
 		if !podIsScrapeable(pod, nsFilter) {
 			continue
 		}
-		backend := scraper.ResolveBackend(pod.Annotations, pod.Labels)
+		backend, source := scraper.ResolveBackendWithSource(pod.Annotations, pod.Labels)
+		if source == scraper.BackendSourceLLMKubeRuntime {
+			log.Info("inferred backend from LLMKube runtime label",
+				"pod", pod.Name, "namespace", pod.Namespace, "backend", backend, "source", source.String())
+		}
 		port := scraper.ResolveMetricsPort(backend, pod.Annotations, pod.Labels)
 		endpoint := fmt.Sprintf("http://%s:%d/metrics", pod.Status.PodIP, port)
 		im, err := scraper.Scrape(ctx, r.ScrapeClient, backend, endpoint)
