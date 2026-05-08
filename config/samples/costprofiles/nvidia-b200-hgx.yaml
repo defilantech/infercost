@@ -1,0 +1,46 @@
+apiVersion: finops.infercost.ai/v1alpha1
+kind: CostProfile
+metadata:
+  name: nvidia-b200-hgx
+  labels:
+    app.kubernetes.io/name: infercost
+    gpu.infercost.ai/vendor: nvidia
+    gpu.infercost.ai/model: b200-hgx-180gb
+spec:
+  hardware:
+    gpuModel: "NVIDIA B200 (HGX)"
+    # 8-GPU HGX B200 baseboard is the canonical datacenter form factor.
+    # Single-GPU PCIe SKUs exist but the 8-GPU NVLink5 / NVSwitch5 chassis
+    # is what most enterprises buy.
+    gpuCount: 8
+    # Purchase price: real procurement quotes vary widely depending on
+    # configuration (HBM size: 180 GB vs 192 GB), liquid vs air cooling,
+    # CPU + memory + storage in the chassis. Mid-2026 list pricing for a
+    # full DGX B200 chassis (8x B200 + dual Xeon + 2 TB DRAM + NVMe) is
+    # in the $450k-$650k range. $500k is a defensible round number for
+    # the bare HGX B200 board + reasonable host. Update with your actual
+    # PO once procurement closes; the per-token math moves with it.
+    purchasePriceUSD: 500000
+    amortizationYears: 3            # Datacenter compute typically 3 yrs
+    maintenancePercentPerYear: 0.10 # NVIDIA Enterprise support contract typical
+    # Per-GPU TDP. B200 sticker TDP is 1000 W; some liquid-cooled SKUs
+    # advertise up to 1200 W under sustained load. 1000 W is the
+    # accounting baseline; bump to 1200 if your chassis is liquid-cooled
+    # and your CostProfile is consistently under-attributing power.
+    tdpWatts: 1000
+  electricity:
+    ratePerKWh: 0.12       # US commercial average; industrial / colo rates vary
+    pueFactor: 1.4         # Typical modern data center PUE; 1.2-1.3 for hyperscale
+  nodeSelector:
+    # Match the node where your B200 workloads run. Common options:
+    #   kubernetes.io/hostname: <node-name>
+    #   nvidia.com/gpu.product: NVIDIA-B200
+    #   nvidia.com/gpu.family: blackwell
+    kubernetes.io/hostname: b200-node-01
+
+  # Note: at 8x B200 @ 1000 W = 8 kW just for GPUs. Full HGX B200 chassis
+  # (CPU + memory + cooling overhead) draws ~14 kW. Plan PDU + facility
+  # cooling capacity accordingly. dcgm-exporter 4.5+ exposes per-GPU
+  # power counters that drive currentPowerDrawWatts in the controller's
+  # status; install that version to get real-time accounting instead of
+  # tdpWatts fallback.
