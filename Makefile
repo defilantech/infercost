@@ -46,6 +46,17 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 	# crd:allowDangerousTypes=true is required for float64 fields in CostProfile and UsageReport.
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd:allowDangerousTypes=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
+.PHONY: chart-crds
+chart-crds: manifests ## Sync the Helm chart's bundled CRDs from config/crd/bases (wraps each in installCRDs conditional).
+	@for crd in costprofiles usagereports tokenbudgets; do \
+		src=config/crd/bases/finops.infercost.ai_$${crd}.yaml; \
+		dst=charts/infercost/templates/crds/$${crd}.yaml; \
+		if [ ! -f "$$src" ]; then echo "missing source: $$src"; exit 1; fi; \
+		{ echo '{{- if .Values.installCRDs }}'; cat "$$src"; echo '{{- end }}'; } > "$$dst"; \
+		echo "Synced $$src -> $$dst"; \
+	done
+	@echo "✅ Chart CRDs sync'd. Run 'helm lint charts/infercost' to verify."
+
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	"$(CONTROLLER_GEN)" object:headerFile="hack/boilerplate.go.txt" paths="./..."
