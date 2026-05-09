@@ -19,6 +19,7 @@ inline so you can adjust the numbers to your actual purchase.
 
 | File | GPU | Typical use |
 |------|-----|-------------|
+| [nvidia-b200-hgx.yaml](nvidia-b200-hgx.yaml) | B200 HGX 180GB (8-GPU chassis) | Frontier inference + training, datacenter Blackwell |
 | [nvidia-h100-sxm5.yaml](nvidia-h100-sxm5.yaml) | H100 SXM5 80GB | Training + large-model inference |
 | [nvidia-a100-80gb.yaml](nvidia-a100-80gb.yaml) | A100 80GB | Large-model inference |
 | [nvidia-a100-40gb.yaml](nvidia-a100-40gb.yaml) | A100 40GB | Mid-model inference |
