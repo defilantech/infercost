@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/defilantech/infercost/compare/v0.3.0...v0.4.0) (2026-05-09)
+
+
+### Features
+
+* **samples:** add NVIDIA B200 HGX CostProfile (datacenter Blackwell) ([#55](https://github.com/defilantech/infercost/issues/55)) ([be3c6a0](https://github.com/defilantech/infercost/commit/be3c6a02163962ba77ec48509a1622299547b148))
+
+
+### Bug Fixes
+
+* **chart:** bundle TokenBudget CRD + sync stale chart CRDs to source (closes [#36](https://github.com/defilantech/infercost/issues/36)) ([#54](https://github.com/defilantech/infercost/issues/54)) ([1a7afd8](https://github.com/defilantech/infercost/commit/1a7afd8acd106744a2bd6c3bb9697bb32faa8e0d))
+* **scraper:** infer backend from inference.llmkube.dev/runtime label as fallback (closes [#45](https://github.com/defilantech/infercost/issues/45)) ([#56](https://github.com/defilantech/infercost/issues/56)) ([6bc8906](https://github.com/defilantech/infercost/commit/6bc890650fbccdc7c3ce85598013002213fb97bc))
+
 ## [0.3.0](https://github.com/defilantech/infercost/compare/v0.2.1...v0.3.0) (2026-04-26)
 
 
