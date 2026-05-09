@@ -26,6 +26,14 @@ const (
 	//   llamacpp: 8080
 	//   vllm:     8000
 	MetricsPortAnnotation = "infercost.ai/metrics-port"
+	// LLMKubeRuntimeLabel is the pod label LLMKube applies to inference
+	// pods identifying the runtime backend. ResolveBackend reads this as
+	// a fallback when neither the InferCost annotation nor label is set,
+	// so users running InferCost alongside LLMKube get correct backend
+	// detection out of the box without an extra annotation.
+	//
+	// Reference: github.com/defilantech/LLMKube PR #410.
+	LLMKubeRuntimeLabel = "inference.llmkube.dev/runtime"
 )
 
 // DefaultPort returns the conventional /metrics port for a backend.
@@ -38,17 +46,68 @@ func (b Backend) DefaultPort() int {
 	}
 }
 
+// BackendSource records which lookup rule produced a backend so callers can
+// log appropriately when a non-explicit fallback fired. The order also
+// reflects precedence: lower-numbered sources beat higher-numbered ones.
+type BackendSource int
+
+const (
+	// BackendSourceAnnotation: explicit infercost.ai/backend annotation.
+	BackendSourceAnnotation BackendSource = iota
+	// BackendSourceLabel: explicit infercost.ai/backend label.
+	BackendSourceLabel
+	// BackendSourceLLMKubeRuntime: inferred from inference.llmkube.dev/runtime
+	// label that LLMKube emits on its inference pods. Fires when neither
+	// InferCost annotation nor label is present.
+	BackendSourceLLMKubeRuntime
+	// BackendSourceDefault: nothing matched, fell back to llama.cpp.
+	BackendSourceDefault
+)
+
+func (s BackendSource) String() string {
+	switch s {
+	case BackendSourceAnnotation:
+		return "infercost.ai/backend annotation"
+	case BackendSourceLabel:
+		return "infercost.ai/backend label"
+	case BackendSourceLLMKubeRuntime:
+		return LLMKubeRuntimeLabel + " label (LLMKube)"
+	default:
+		return "default (no backend hint found)"
+	}
+}
+
 // ResolveBackend picks a backend from pod annotations or labels, falling back
-// to llama.cpp. Annotations take precedence over labels so users can override
-// the backend without relabeling pods that might be owned by a controller.
+// to llama.cpp. Precedence:
+//
+//  1. infercost.ai/backend annotation (explicit override)
+//  2. infercost.ai/backend label (explicit override at label level)
+//  3. inference.llmkube.dev/runtime label (LLMKube emits this; we read it as a
+//     fallback so InferCost works out of the box alongside LLMKube)
+//  4. default to llama.cpp
+//
+// Returns just the resolved backend; callers that want to log which rule
+// fired should use ResolveBackendWithSource.
 func ResolveBackend(annotations, labels map[string]string) Backend {
+	b, _ := ResolveBackendWithSource(annotations, labels)
+	return b
+}
+
+// ResolveBackendWithSource is the explicit-source variant of ResolveBackend.
+// Used by the controller scrape loops so they can log "inferred backend from
+// LLMKube runtime label" at info level when rule 3 fires, making the
+// behavior visible to operators without surprising them.
+func ResolveBackendWithSource(annotations, labels map[string]string) (Backend, BackendSource) {
 	if v, ok := annotations[BackendAnnotation]; ok {
-		return normalizeBackend(v)
+		return normalizeBackend(v), BackendSourceAnnotation
 	}
 	if v, ok := labels[BackendAnnotation]; ok {
-		return normalizeBackend(v)
+		return normalizeBackend(v), BackendSourceLabel
 	}
-	return BackendLlamaCPP
+	if v, ok := labels[LLMKubeRuntimeLabel]; ok && v != "" {
+		return normalizeBackend(v), BackendSourceLLMKubeRuntime
+	}
+	return BackendLlamaCPP, BackendSourceDefault
 }
 
 func normalizeBackend(v string) Backend {
