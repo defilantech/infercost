@@ -35,6 +35,7 @@ func NewServer(addr string, store *Store) *Server {
 	mux.HandleFunc("GET /api/v1/costs/by-namespace", s.handleCostsByNamespace)
 	mux.HandleFunc("GET /api/v1/models", s.handleModels)
 	mux.HandleFunc("GET /api/v1/compare", s.handleCompare)
+	mux.HandleFunc("GET /api/v1/break-even", s.handleBreakEven)
 	mux.HandleFunc("GET /api/v1/budgets", s.handleBudgets)
 	mux.HandleFunc("GET /api/v1/status", s.handleStatus)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -71,6 +72,20 @@ func (s *Server) handleCostsCurrent(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleBreakEven(w http.ResponseWriter, _ *http.Request) {
+	data := s.store.GetBreakEven()
+	if len(data) == 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "no break-even data available yet — waiting for first reconcile",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"breakEven": data,
+		"count":     len(data),
+	})
 }
 
 func (s *Server) handleCostsByNamespace(w http.ResponseWriter, r *http.Request) {

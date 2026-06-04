@@ -36,6 +36,11 @@ spec:
       name: $/MTok (active)
       priority: 1
       type: number
+    - format: float
+      jsonPath: .status.breakEvenAnalysis[0].percentOfBreakEven
+      name: Break-even %
+      priority: 1
+      type: number
     - jsonPath: .status.inputTokens
       name: Input Tokens
       type: integer
@@ -130,6 +135,52 @@ spec:
                   power draw above the idle threshold. Paired with totalHoursInPeriod so
                   operators can see the ratio without recomputing.
                 type: number
+              breakEvenAnalysis:
+                description: |-
+                  breakEvenAnalysis reports, per configured cloud target, the daily token
+                  volume at which on-prem cost equals the cloud cost, and how current
+                  throughput compares. Answers "at what volume does on-prem beat the cloud?"
+                items:
+                  description: |-
+                    BreakEvenEntry reports, for one cloud target, the daily token volume at which
+                    on-prem cost equals that cloud model's cost, and how current throughput compares.
+                  properties:
+                    breakEvenTokensPerDay:
+                      description: |-
+                        breakEvenTokensPerDay is the daily token volume at which on-prem cost
+                        equals this cloud model's cost. Above it, on-prem is cheaper.
+                      format: int64
+                      type: integer
+                    currentUtilizationTokensPerDay:
+                      description: currentUtilizationTokensPerDay is current throughput
+                        extrapolated to a full day.
+                      format: int64
+                      type: integer
+                    model:
+                      description: model is the cloud model compared against.
+                      type: string
+                    percentOfBreakEven:
+                      description: |-
+                        percentOfBreakEven is currentUtilizationTokensPerDay / breakEvenTokensPerDay
+                        as a percentage (>= 100 means on-prem is at or past break-even).
+                      type: number
+                    provider:
+                      description: provider is the cloud provider compared against.
+                      type: string
+                    verdict:
+                      description: |-
+                        verdict summarizes the comparison at current utilization
+                        ("on-prem-cheaper-at-current-utilization" or "cloud-cheaper-at-current-utilization").
+                      type: string
+                  required:
+                  - breakEvenTokensPerDay
+                  - currentUtilizationTokensPerDay
+                  - model
+                  - percentOfBreakEven
+                  - provider
+                  - verdict
+                  type: object
+                type: array
               byModel:
                 description: byModel contains per-model cost breakdowns.
                 items:

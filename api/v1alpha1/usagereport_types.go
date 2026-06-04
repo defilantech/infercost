@@ -197,6 +197,12 @@ type UsageReportStatus struct {
 	// +optional
 	CloudComparison []CloudComparisonEntry `json:"cloudComparison,omitempty"`
 
+	// breakEvenAnalysis reports, per configured cloud target, the daily token
+	// volume at which on-prem cost equals the cloud cost, and how current
+	// throughput compares. Answers "at what volume does on-prem beat the cloud?"
+	// +optional
+	BreakEvenAnalysis []BreakEvenEntry `json:"breakEvenAnalysis,omitempty"`
+
 	// lastUpdated is the timestamp of the last report computation.
 	// +optional
 	LastUpdated *metav1.Time `json:"lastUpdated,omitempty"`
@@ -208,6 +214,31 @@ type UsageReportStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// BreakEvenEntry reports, for one cloud target, the daily token volume at which
+// on-prem cost equals that cloud model's cost, and how current throughput compares.
+type BreakEvenEntry struct {
+	// provider is the cloud provider compared against.
+	Provider string `json:"provider"`
+
+	// model is the cloud model compared against.
+	Model string `json:"model"`
+
+	// breakEvenTokensPerDay is the daily token volume at which on-prem cost
+	// equals this cloud model's cost. Above it, on-prem is cheaper.
+	BreakEvenTokensPerDay int64 `json:"breakEvenTokensPerDay"`
+
+	// currentUtilizationTokensPerDay is current throughput extrapolated to a full day.
+	CurrentUtilizationTokensPerDay int64 `json:"currentUtilizationTokensPerDay"`
+
+	// percentOfBreakEven is currentUtilizationTokensPerDay / breakEvenTokensPerDay
+	// as a percentage (>= 100 means on-prem is at or past break-even).
+	PercentOfBreakEven float64 `json:"percentOfBreakEven"`
+
+	// verdict summarizes the comparison at current utilization
+	// ("on-prem-cheaper-at-current-utilization" or "cloud-cheaper-at-current-utilization").
+	Verdict string `json:"verdict"`
+}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Period",type=string,JSONPath=`.status.period`
@@ -215,6 +246,7 @@ type UsageReportStatus struct {
 // +kubebuilder:printcolumn:name="$/MTok",type=number,JSONPath=`.status.costPerMillionTokens`,format=float
 // +kubebuilder:printcolumn:name="$/MTok (marginal)",type=number,JSONPath=`.status.marginalCostPerMillionTokens`,format=float,priority=1
 // +kubebuilder:printcolumn:name="$/MTok (active)",type=number,JSONPath=`.status.activeHoursCostPerMillionTokens`,format=float,priority=1
+// +kubebuilder:printcolumn:name="Break-even %",type=number,JSONPath=`.status.breakEvenAnalysis[0].percentOfBreakEven`,format=float,priority=1
 // +kubebuilder:printcolumn:name="Input Tokens",type=integer,JSONPath=`.status.inputTokens`
 // +kubebuilder:printcolumn:name="Output Tokens",type=integer,JSONPath=`.status.outputTokens`
 // +kubebuilder:printcolumn:name="Util %",type=number,JSONPath=`.status.utilizationPercent`,format=float,priority=1

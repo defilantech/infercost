@@ -19,7 +19,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +37,7 @@ import (
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
 	internalapi "github.com/defilantech/infercost/internal/api"
 	"github.com/defilantech/infercost/internal/calculator"
+	"github.com/defilantech/infercost/internal/metrics"
 	"github.com/defilantech/infercost/internal/scraper"
 	"github.com/defilantech/infercost/internal/utilization"
 )
@@ -152,6 +155,12 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	activeHoursCostPerMillion := calculator.ActiveHoursCostPerMillionTokens(
 		profile.Status.HourlyCostUSD, activeHours, hoursInPeriod, totalTokens)
 
+	breakEvenAnalysis, unknownTargets := computeBreakEven(&profile, totalIn, totalOut, hoursInPeriod)
+	if len(unknownTargets) > 0 {
+		log.Info("skipping unknown cloud comparison targets (not in pricing catalog)", "targets", unknownTargets)
+	}
+	emitBreakEvenMetrics(profile.Name, breakEvenAnalysis)
+
 	periodStr := formatPeriod(report.Spec.Schedule, periodStart)
 	computed := computedStatus{
 		period:                          periodStr,
@@ -164,6 +173,7 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		marginalCostPerMillionTokens:    marginalCostPerMillion,
 		activeHoursCostPerMillionTokens: activeHoursCostPerMillion,
 		activeEnergyKWh:                 activeEnergyKWh,
+		breakEvenAnalysis:               breakEvenAnalysis,
 		byModel:                         byModel,
 		byNamespace:                     byNamespace,
 		utilizationPercent:              utilizationPercent,
@@ -180,6 +190,7 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if r.APIStore != nil {
 		r.APIStore.SetNamespaceCosts(nsCostData)
+		r.APIStore.SetBreakEven(breakEvenToAPI(breakEvenAnalysis))
 	}
 
 	log.Info("usage report computed",
@@ -371,6 +382,94 @@ func buildBreakdowns(
 // computedStatus is the intermediate view of a single reconcile's output,
 // passed from the computation phase to the write phase so the Reconcile entry
 // point stays short enough to read top-to-bottom.
+// defaultBreakEvenTargets is the zero-config comparison set: one mid-tier model
+// per provider. Operators override via CostProfile.spec.cloudComparison.targets.
+func defaultBreakEvenTargets() []finopsv1alpha1.CloudTarget {
+	return []finopsv1alpha1.CloudTarget{
+		{Provider: "OpenAI", Model: "gpt-5.4-mini"},
+		{Provider: "Anthropic", Model: "claude-sonnet-4-6"},
+		{Provider: "Google", Model: "gemini-2.5-flash"},
+	}
+}
+
+// computeBreakEven builds the per-target break-even analysis. Targets come from
+// the CostProfile (or the mid-tier default). Each target's cloud rate is looked
+// up case-insensitively in the bundled pricing catalog; unrecognized targets are
+// skipped and returned in `unknown` so the caller can surface them.
+func computeBreakEven(profile *finopsv1alpha1.CostProfile, totalIn, totalOut int64, hoursInPeriod float64) (entries []finopsv1alpha1.BreakEvenEntry, unknown []string) {
+	targets := defaultBreakEvenTargets()
+	if profile.Spec.CloudComparison != nil && len(profile.Spec.CloudComparison.Targets) > 0 {
+		targets = profile.Spec.CloudComparison.Targets
+	}
+
+	pricingByKey := make(map[string]calculator.CloudPricing)
+	for _, p := range calculator.DefaultCloudPricing() {
+		pricingByKey[strings.ToLower(p.Provider)+"/"+strings.ToLower(p.Model)] = p
+	}
+
+	dailyHardwareCost := calculator.DailyHardwareCost(
+		profile.Status.AmortizationRatePerHour,
+		resolveIdleThreshold(profile),
+		profile.Spec.Electricity.RatePerKWh,
+		profile.Spec.Electricity.PUEFactor,
+	)
+
+	var currentTokensPerDay float64
+	if hoursInPeriod > 0 {
+		currentTokensPerDay = (float64(totalIn+totalOut) / hoursInPeriod) * 24.0
+	}
+
+	for _, t := range targets {
+		p, ok := pricingByKey[strings.ToLower(t.Provider)+"/"+strings.ToLower(t.Model)]
+		if !ok {
+			unknown = append(unknown, t.Provider+"/"+t.Model)
+			continue
+		}
+		cpt := calculator.CloudCostPerToken(p, totalIn, totalOut)
+		breakEven := calculator.BreakEvenTokensPerDay(dailyHardwareCost, cpt)
+		percent := calculator.PercentOfBreakEven(currentTokensPerDay, breakEven)
+
+		verdict := "cloud-cheaper-at-current-utilization"
+		if breakEven > 0 && currentTokensPerDay >= breakEven {
+			verdict = "on-prem-cheaper-at-current-utilization"
+		}
+
+		entries = append(entries, finopsv1alpha1.BreakEvenEntry{
+			Provider:                       p.Provider,
+			Model:                          p.Model,
+			BreakEvenTokensPerDay:          int64(math.Round(breakEven)),
+			CurrentUtilizationTokensPerDay: int64(math.Round(currentTokensPerDay)),
+			PercentOfBreakEven:             percent,
+			Verdict:                        verdict,
+		})
+	}
+	return entries, unknown
+}
+
+// breakEvenToAPI converts CRD break-even entries to the REST API store shape.
+func breakEvenToAPI(entries []finopsv1alpha1.BreakEvenEntry) []internalapi.BreakEvenData {
+	out := make([]internalapi.BreakEvenData, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, internalapi.BreakEvenData{
+			Provider:                       e.Provider,
+			Model:                          e.Model,
+			BreakEvenTokensPerDay:          e.BreakEvenTokensPerDay,
+			CurrentUtilizationTokensPerDay: e.CurrentUtilizationTokensPerDay,
+			PercentOfBreakEven:             e.PercentOfBreakEven,
+			Verdict:                        e.Verdict,
+		})
+	}
+	return out
+}
+
+// emitBreakEvenMetrics exports the per-target break-even gauges for Grafana.
+func emitBreakEvenMetrics(costProfile string, entries []finopsv1alpha1.BreakEvenEntry) {
+	for _, e := range entries {
+		metrics.BreakEvenTokensPerDay.WithLabelValues(costProfile, e.Provider, e.Model).Set(float64(e.BreakEvenTokensPerDay))
+		metrics.PercentOfBreakEven.WithLabelValues(costProfile, e.Provider, e.Model).Set(e.PercentOfBreakEven)
+	}
+}
+
 type computedStatus struct {
 	period                          string
 	periodStart                     time.Time
@@ -382,6 +481,7 @@ type computedStatus struct {
 	marginalCostPerMillionTokens    float64
 	activeHoursCostPerMillionTokens float64
 	activeEnergyKWh                 float64
+	breakEvenAnalysis               []finopsv1alpha1.BreakEvenEntry
 	byModel                         []finopsv1alpha1.ModelCostBreakdown
 	byNamespace                     []finopsv1alpha1.NamespaceCostBreakdown
 	// utilization-derived fields (all zero when no sampler is wired)
@@ -415,6 +515,7 @@ func (r *UsageReportReconciler) applyStatusIfChanged(ctx context.Context, report
 	report.Status.ActiveEnergyKWh = c.activeEnergyKWh
 	report.Status.ByModel = c.byModel
 	report.Status.ByNamespace = c.byNamespace
+	report.Status.BreakEvenAnalysis = c.breakEvenAnalysis
 	report.Status.UtilizationPercent = c.utilizationPercent
 	report.Status.GPUEfficiencyRatio = c.gpuEfficiencyRatio
 	report.Status.ActiveHoursInPeriod = c.activeHoursInPeriod

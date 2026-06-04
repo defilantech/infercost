@@ -690,3 +690,66 @@ func TestActiveHoursCostPerMillionTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestDailyHardwareCost(t *testing.T) {
+	tests := []struct {
+		name                string
+		amortizationPerHour float64
+		idleWatts           float64
+		ratePerKWh          float64
+		pueFactor           float64
+		want                float64
+	}{
+		{"amort + idle electricity", 1.0, 100, 0.10, 1.0, 24.0 + 0.24}, // 24 + 0.1kW*24h*0.10
+		{"pue <= 0 treated as 1.0", 1.0, 100, 0.10, 0, 24.24},
+		{"pue multiplier applies to idle", 1.0, 100, 0.10, 1.5, 24.0 + 0.36},
+		{"zero idle watts is amortization only", 1.0, 0, 0.10, 1.0, 24.0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := DailyHardwareCost(tc.amortizationPerHour, tc.idleWatts, tc.ratePerKWh, tc.pueFactor)
+			if !almostEqual(got, tc.want) {
+				t.Errorf("DailyHardwareCost() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCloudCostPerToken(t *testing.T) {
+	p := CloudPricing{Provider: "anthropic", Model: "claude-sonnet-4-6", InputPerMillion: 3.0, OutputPerMillion: 15.0}
+	tests := []struct {
+		name    string
+		in, out int64
+		want    float64
+	}{
+		{"50/50 actual ratio", 1_000_000, 1_000_000, 9.0 / 1e6}, // (0.5*3 + 0.5*15)/1e6
+		{"no tokens falls back to 50/50", 0, 0, 9.0 / 1e6},
+		{"75/25 ratio", 3_000_000, 1_000_000, 6.0 / 1e6}, // (0.75*3 + 0.25*15)/1e6
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CloudCostPerToken(p, tc.in, tc.out)
+			if !almostEqual(got, tc.want) {
+				t.Errorf("CloudCostPerToken() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBreakEvenTokensPerDay(t *testing.T) {
+	if got := BreakEvenTokensPerDay(24.24, 9.0/1e6); !almostEqual(got, 24.24/(9.0/1e6)) {
+		t.Errorf("BreakEvenTokensPerDay() = %v, want %v", got, 24.24/(9.0/1e6))
+	}
+	if got := BreakEvenTokensPerDay(24.0, 0); got != 0 {
+		t.Errorf("zero cloud rate should yield 0, got %v", got)
+	}
+}
+
+func TestPercentOfBreakEven(t *testing.T) {
+	if got := PercentOfBreakEven(1_000_000, 2_000_000); !almostEqual(got, 50.0) {
+		t.Errorf("PercentOfBreakEven() = %v, want 50", got)
+	}
+	if got := PercentOfBreakEven(1_000_000, 0); got != 0 {
+		t.Errorf("zero break-even should yield 0, got %v", got)
+	}
+}

@@ -467,3 +467,68 @@ func TestServer_Status(t *testing.T) {
 		t.Error("status response missing comparisons key")
 	}
 }
+
+func TestStore_BreakEven(t *testing.T) {
+	s := NewStore()
+	in := []BreakEvenData{
+		{Provider: "Anthropic", Model: "claude-sonnet-4-6", BreakEvenTokensPerDay: 100000,
+			CurrentUtilizationTokensPerDay: 6000, PercentOfBreakEven: 6.0, Verdict: "cloud-cheaper-at-current-utilization"},
+	}
+	s.SetBreakEven(in)
+	got := s.GetBreakEven()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 break-even entry, got %d", len(got))
+	}
+	if got[0].Provider != "Anthropic" || got[0].BreakEvenTokensPerDay != 100000 {
+		t.Errorf("unexpected entry: %+v", got[0])
+	}
+	// Mutating the returned copy must not affect the store.
+	got[0].Provider = "mutated"
+	if s.GetBreakEven()[0].Provider != "Anthropic" {
+		t.Error("GetBreakEven returned a non-copy; store was mutated")
+	}
+}
+
+func TestServer_BreakEven_NoData(t *testing.T) {
+	store := NewStore()
+	server := NewServer(":0", store)
+
+	req := httptest.NewRequest("GET", "/api/v1/break-even", nil)
+	w := httptest.NewRecorder()
+	server.httpServer.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("break-even with no data status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestServer_BreakEven_WithData(t *testing.T) {
+	store := NewStore()
+	store.SetBreakEven([]BreakEvenData{
+		{Provider: "OpenAI", Model: "gpt-5.4-mini", BreakEvenTokensPerDay: 250000,
+			CurrentUtilizationTokensPerDay: 300000, PercentOfBreakEven: 120.0,
+			Verdict: "on-prem-cheaper-at-current-utilization"},
+	})
+	server := NewServer(":0", store)
+
+	req := httptest.NewRequest("GET", "/api/v1/break-even", nil)
+	w := httptest.NewRecorder()
+	server.httpServer.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	var body struct {
+		BreakEven []BreakEvenData `json:"breakEven"`
+		Count     int             `json:"count"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if body.Count != 1 || len(body.BreakEven) != 1 {
+		t.Fatalf("expected 1 entry, got count=%d len=%d", body.Count, len(body.BreakEven))
+	}
+	if body.BreakEven[0].Verdict != "on-prem-cheaper-at-current-utilization" {
+		t.Errorf("verdict = %q", body.BreakEven[0].Verdict)
+	}
+}

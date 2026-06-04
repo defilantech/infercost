@@ -155,6 +155,28 @@ var (
 		},
 		[]string{"namespace", "budget_name"},
 	)
+
+	// BreakEvenTokensPerDay is the daily token volume at which on-prem cost
+	// equals the cloud model's cost (above it, on-prem is cheaper).
+	BreakEvenTokensPerDay = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "infercost",
+			Name:      "break_even_tokens_per_day",
+			Help:      "Daily token volume at which on-prem cost equals the cloud model's cost.",
+		},
+		[]string{"cost_profile", "provider", "cloud_model"},
+	)
+
+	// PercentOfBreakEven is how far current throughput is toward break-even
+	// (>= 100 means on-prem is at or past break-even).
+	PercentOfBreakEven = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "infercost",
+			Name:      "percent_of_break_even",
+			Help:      "Current daily throughput as a percentage of the break-even volume (>=100 means on-prem wins).",
+		},
+		[]string{"cost_profile", "provider", "cloud_model"},
+	)
 )
 
 func init() {
@@ -174,5 +196,7 @@ func init() {
 		BudgetLimitUSD,
 		BudgetCurrentSpendUSD,
 		BudgetUtilizationPercent,
+		BreakEvenTokensPerDay,
+		PercentOfBreakEven,
 	)
 }
