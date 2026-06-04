@@ -168,6 +168,10 @@ var _ = Describe("UsageReport Controller", func() {
 			Expect(readyCondition).NotTo(BeNil())
 			Expect(readyCondition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(readyCondition.Reason).To(Equal("ReportComputed"))
+			By("verifying the utilization-aware framing (issue #41)")
+			Expect(readyCondition.Message).To(ContainSubstring("Amortized:"))
+			Expect(readyCondition.Message).To(ContainSubstring("utilization"))
+			Expect(readyCondition.Message).To(ContainSubstring("Break-even with"))
 		})
 	})
 

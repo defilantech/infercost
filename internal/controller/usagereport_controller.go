@@ -38,6 +38,7 @@ import (
 	internalapi "github.com/defilantech/infercost/internal/api"
 	"github.com/defilantech/infercost/internal/calculator"
 	"github.com/defilantech/infercost/internal/metrics"
+	reporting "github.com/defilantech/infercost/internal/report"
 	"github.com/defilantech/infercost/internal/scraper"
 	"github.com/defilantech/infercost/internal/utilization"
 )
@@ -526,7 +527,7 @@ func (r *UsageReportReconciler) applyStatusIfChanged(ctx context.Context, report
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
 		Reason:             "ReportComputed",
-		Message:            fmt.Sprintf("Period %s: $%.4f across %d tokens", c.period, c.totalCost, totalTokens),
+		Message:            reporting.StatusMessage(report.Status),
 		LastTransitionTime: metaNow,
 	})
 
