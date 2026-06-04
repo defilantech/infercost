@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/defilantech/infercost/compare/v0.4.0...v0.5.0) (2026-06-04)
+
+
+### Features
+
+* **cost-model:** break-even tokens-per-day per cloud provider (closes [#39](https://github.com/defilantech/infercost/issues/39)) ([#67](https://github.com/defilantech/infercost/issues/67)) ([578d563](https://github.com/defilantech/infercost/commit/578d563a14206fe3f702a1cc7447fae38c1bf7b9))
+* **usagereport:** utilization-aware status message framing (closes [#41](https://github.com/defilantech/infercost/issues/41)) ([#68](https://github.com/defilantech/infercost/issues/68)) ([6e89290](https://github.com/defilantech/infercost/commit/6e8929058b20f57945441864fc9f8c9da249b308))
+
 ## [0.4.0](https://github.com/defilantech/infercost/compare/v0.3.0...v0.4.0) (2026-05-09)
 
 
