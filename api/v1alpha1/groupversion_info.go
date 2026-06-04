@@ -29,6 +29,7 @@ var (
 	GroupVersion = schema.GroupVersion{Group: "finops.infercost.ai", Version: "v1alpha1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
+	// nolint:staticcheck // SA1019: kubebuilder scaffold still uses scheme.Builder; controller-runtime 0.24 deprecated it pending an upstream scaffold update. Migrating would change every SchemeBuilder.Register call.
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
 
 	// AddToScheme adds the types in this group-version to the given scheme.
