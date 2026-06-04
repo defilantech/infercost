@@ -146,6 +146,16 @@ var _ = Describe("UsageReport Controller", func() {
 			// Cost should be > 0 since hourlyCostUSD is 0.06 and hoursInPeriod > 0
 			Expect(updated.Status.EstimatedCostUSD).To(BeNumerically(">", 0))
 
+			By("verifying break-even analysis is populated (default mid-tier targets)")
+			Expect(updated.Status.BreakEvenAnalysis).NotTo(BeEmpty())
+			for _, be := range updated.Status.BreakEvenAnalysis {
+				Expect(be.Provider).NotTo(BeEmpty())
+				Expect(be.Model).NotTo(BeEmpty())
+				Expect(be.Verdict).NotTo(BeEmpty())
+			}
+			By("verifying break-even was pushed to the REST API store")
+			Expect(apiStore.GetBreakEven()).To(HaveLen(len(updated.Status.BreakEvenAnalysis)))
+
 			By("verifying the Ready condition is set")
 			Expect(updated.Status.Conditions).NotTo(BeEmpty())
 			var readyCondition *metav1.Condition

@@ -16,9 +16,10 @@ one means, which question it answers, and when it misleads.
 | `marginalCostPerMillionTokens` | Electricity-only \$ / 1M tokens during active time | What each token costs in power, once you own the hardware |
 | `activeEnergyKWh` | Integrated kWh across active intervals | Numerator of the marginal calculation, exposed so operators can sanity-check |
 
-Future fields (tracked in GitHub issues [#37, #39, #41](https://github.com/defilantech/infercost/issues?q=is%3Aissue+label%3Aarea%2Fcost-model)):
+- `breakEvenAnalysis[]` | Per cloud target, the daily token volume at which on-prem cost equals the cloud cost, plus current throughput and a verdict | The decision metric: see [cloud-comparison.md](cloud-comparison.md)
 
-- Break-even tokens-per-day per cloud provider (#39)
+Future fields (tracked in GitHub issues [#37, #41](https://github.com/defilantech/infercost/issues?q=is%3Aissue+label%3Aarea%2Fcost-model)):
+
 - Active-hour amortization (#37) — will replace the current wall-clock amortization denominator when enabled
 - Utilization-aware status message (#41)
 

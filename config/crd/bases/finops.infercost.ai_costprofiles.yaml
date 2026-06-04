@@ -61,6 +61,40 @@ spec:
             description: CostProfileSpec defines the hardware economics for computing
               inference costs.
             properties:
+              cloudComparison:
+                description: |-
+                  cloudComparison selects which cloud models the break-even analysis compares
+                  against. When omitted, a sensible mid-tier default per provider is used.
+                properties:
+                  targets:
+                    description: |-
+                      targets is the list of cloud provider+model pairs to compare against.
+                      Choose models comparable to what you self-host (a small coder model
+                      breaks even against a budget cloud model, not a flagship). When omitted,
+                      InferCost defaults to one mid-tier model per provider.
+                    items:
+                      description: |-
+                        CloudTarget names a specific cloud provider + model to compute break-even
+                        against. Both must match an entry in the bundled cloud pricing catalog
+                        (case-insensitive); unknown targets are skipped and surfaced via a status
+                        condition rather than silently ignored.
+                      properties:
+                        model:
+                          description: model is the cloud model id (e.g. "claude-sonnet-4-6",
+                            "gpt-5.4-nano").
+                          minLength: 1
+                          type: string
+                        provider:
+                          description: provider is the cloud provider name (e.g. "anthropic",
+                            "openai", "google").
+                          minLength: 1
+                          type: string
+                      required:
+                      - model
+                      - provider
+                      type: object
+                    type: array
+                type: object
               electricity:
                 description: electricity declares electricity cost parameters.
                 properties:

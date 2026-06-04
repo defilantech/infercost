@@ -189,3 +189,53 @@ func CompareToCloud(inputTokens, outputTokens int64, onPremCostUSD float64, pric
 	}
 	return results
 }
+
+// DailyHardwareCost returns the fixed daily cost of owning the hardware: the
+// amortization charged for 24h plus the electricity the GPUs draw while idle
+// for a full day. This is the numerator of the break-even calculation — the
+// cost that must be covered by serving tokens before on-prem beats the cloud.
+// pueFactor <= 0 is treated as 1.0.
+func DailyHardwareCost(amortizationPerHour, idleWatts, ratePerKWh, pueFactor float64) float64 {
+	pue := pueFactor
+	if pue <= 0 {
+		pue = 1.0
+	}
+	amortizationPerDay := amortizationPerHour * 24.0
+	idleElectricityPerDay := (idleWatts / 1000.0) * 24.0 * ratePerKWh * pue
+	return amortizationPerDay + idleElectricityPerDay
+}
+
+// CloudCostPerToken returns the blended USD-per-token rate for a cloud model,
+// weighting input vs output prices by the actual input/output ratio of the
+// workload. When no tokens have been observed it falls back to a 50/50 blend.
+func CloudCostPerToken(p CloudPricing, inputTokens, outputTokens int64) float64 {
+	total := inputTokens + outputTokens
+	var inFrac, outFrac float64
+	if total <= 0 {
+		inFrac, outFrac = 0.5, 0.5
+	} else {
+		inFrac = float64(inputTokens) / float64(total)
+		outFrac = float64(outputTokens) / float64(total)
+	}
+	return (inFrac*p.InputPerMillion + outFrac*p.OutputPerMillion) / 1_000_000.0
+}
+
+// BreakEvenTokensPerDay returns the tokens/day at which the daily hardware cost
+// equals the cloud cost for the same tokens — above this volume on-prem is
+// cheaper. Returns 0 when the cloud rate is non-positive.
+func BreakEvenTokensPerDay(dailyHardwareCost, cloudCostPerToken float64) float64 {
+	if cloudCostPerToken <= 0 {
+		return 0
+	}
+	return dailyHardwareCost / cloudCostPerToken
+}
+
+// PercentOfBreakEven returns how far current throughput is toward the break-even
+// volume as a percentage (>= 100 means on-prem is at or past break-even).
+// Returns 0 when break-even is non-positive.
+func PercentOfBreakEven(currentTokensPerDay, breakEvenTokensPerDay float64) float64 {
+	if breakEvenTokensPerDay <= 0 {
+		return 0
+	}
+	return currentTokensPerDay / breakEvenTokensPerDay * 100.0
+}

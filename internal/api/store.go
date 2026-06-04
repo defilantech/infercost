@@ -64,6 +64,16 @@ type ComparisonData struct {
 	OutputPerMTok  float64 `json:"outputPerMillionTokensUSD"`
 }
 
+// BreakEvenData holds the break-even analysis for one cloud target.
+type BreakEvenData struct {
+	Provider                       string  `json:"provider"`
+	Model                          string  `json:"model"`
+	BreakEvenTokensPerDay          int64   `json:"breakEvenTokensPerDay"`
+	CurrentUtilizationTokensPerDay int64   `json:"currentUtilizationTokensPerDay"`
+	PercentOfBreakEven             float64 `json:"percentOfBreakEven"`
+	Verdict                        string  `json:"verdict"`
+}
+
 // BudgetData holds the latest budget state for a TokenBudget CR.
 type BudgetData struct {
 	Name               string  `json:"name"`
@@ -82,6 +92,7 @@ type Store struct {
 	comparisons    []ComparisonData
 	namespaceCosts []NamespaceCostData
 	budgets        []BudgetData
+	breakEven      []BreakEvenData
 }
 
 // NewStore creates an empty store.
@@ -108,6 +119,22 @@ func (s *Store) SetComparisons(comparisons []ComparisonData) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.comparisons = comparisons
+}
+
+// SetBreakEven updates the per-target break-even analysis data.
+func (s *Store) SetBreakEven(data []BreakEvenData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.breakEven = data
+}
+
+// GetBreakEven returns the latest break-even analysis (a copy).
+func (s *Store) GetBreakEven() []BreakEvenData {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]BreakEvenData, len(s.breakEven))
+	copy(result, s.breakEven)
+	return result
 }
 
 // GetCostData returns the latest cost data.

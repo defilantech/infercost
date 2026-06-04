@@ -70,6 +70,31 @@ type ElectricitySpec struct {
 	IdleWattsThreshold *float64 `json:"idleWattsThreshold,omitempty"`
 }
 
+// CloudTarget names a specific cloud provider + model to compute break-even
+// against. Both must match an entry in the bundled cloud pricing catalog
+// (case-insensitive); unknown targets are skipped and surfaced via a status
+// condition rather than silently ignored.
+type CloudTarget struct {
+	// provider is the cloud provider name (e.g. "anthropic", "openai", "google").
+	// +kubebuilder:validation:MinLength=1
+	Provider string `json:"provider"`
+
+	// model is the cloud model id (e.g. "claude-sonnet-4-6", "gpt-5.4-nano").
+	// +kubebuilder:validation:MinLength=1
+	Model string `json:"model"`
+}
+
+// CloudComparisonSpec selects which cloud models the break-even analysis is
+// computed against for workloads covered by this profile.
+type CloudComparisonSpec struct {
+	// targets is the list of cloud provider+model pairs to compare against.
+	// Choose models comparable to what you self-host (a small coder model
+	// breaks even against a budget cloud model, not a flagship). When omitted,
+	// InferCost defaults to one mid-tier model per provider.
+	// +optional
+	Targets []CloudTarget `json:"targets,omitempty"`
+}
+
 // CostProfileSpec defines the hardware economics for computing inference costs.
 type CostProfileSpec struct {
 	// hardware declares GPU hardware cost parameters.
@@ -89,6 +114,11 @@ type CostProfileSpec struct {
 	// If omitted, all namespaces on matching nodes are included.
 	// +optional
 	NamespaceSelector map[string]string `json:"namespaceSelector,omitempty"`
+
+	// cloudComparison selects which cloud models the break-even analysis compares
+	// against. When omitted, a sensible mid-tier default per provider is used.
+	// +optional
+	CloudComparison *CloudComparisonSpec `json:"cloudComparison,omitempty"`
 }
 
 // CostProfileStatus defines the computed state of a CostProfile.
