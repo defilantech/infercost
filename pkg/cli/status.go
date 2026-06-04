@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
 	"github.com/defilantech/infercost/internal/calculator"
+	reporting "github.com/defilantech/infercost/internal/report"
 	"github.com/defilantech/infercost/internal/scraper"
 )
 
@@ -217,6 +219,28 @@ func runStatus(opts *statusOptions) error {
 				c.Provider, c.Model, c.CloudCostUSD, savingsStr)
 		}
 		_ = w.Flush()
+	}
+
+	// Utilization-aware framing per UsageReport (issue #41): surfaces the
+	// amortized/marginal/break-even context inline so the headline cost isn't
+	// misread as "worse than cloud" at low utilization.
+	var reports finopsv1alpha1.UsageReportList
+	if err := k8sClient.List(ctx, &reports); err == nil && len(reports.Items) > 0 {
+		printed := false
+		for _, rep := range reports.Items {
+			if rep.Status.Period == "" {
+				continue // not computed yet
+			}
+			if !printed {
+				fmt.Println("\nUSAGE REPORTS")
+				fmt.Println("=============")
+				printed = true
+			}
+			fmt.Printf("\n%s:\n", rep.Name)
+			for line := range strings.SplitSeq(reporting.StatusMessage(rep.Status), "\n") {
+				fmt.Printf("  %s\n", line)
+			}
+		}
 	}
 
 	return nil
