@@ -88,6 +88,28 @@ func ComputeCostPerToken(hourlyCost, tokensPerHour float64) float64 {
 	return hourlyCost / tokensPerHour
 }
 
+// ActiveHoursCostPerMillionTokens amortizes the full hourly cost (hardware
+// amortization + electricity) over only the hours the GPUs were actively
+// serving, then divides by tokens. activeHours is capped at wallClockHours to
+// guard against sampler overcount (e.g. a sampler that just started or a
+// controller restart can report more active hours than the window).
+//
+// This sits between the electricity-only marginal cost (lower bound) and the
+// fully-loaded wall-clock cost (true cost of ownership, upper bound): it answers
+// "what would a token cost if the hardware only cost money while it was working?"
+// Returns 0 when there are no tokens, no active hours, or no hourly cost.
+func ActiveHoursCostPerMillionTokens(hourlyCost, activeHours, wallClockHours float64, totalTokens int64) float64 {
+	if totalTokens <= 0 || activeHours <= 0 || hourlyCost <= 0 {
+		return 0
+	}
+	effectiveActiveHours := activeHours
+	if wallClockHours > 0 && effectiveActiveHours > wallClockHours {
+		effectiveActiveHours = wallClockHours
+	}
+	activeHoursCost := hourlyCost * effectiveActiveHours
+	return activeHoursCost / (float64(totalTokens) / 1_000_000.0)
+}
+
 // ComputeFull runs the complete cost calculation pipeline.
 func ComputeFull(hw HardwareCosts, powerDrawWatts float64, prev, curr TokenSnapshot) CostResult {
 	amort, elec, total := ComputeHourlyCost(hw, powerDrawWatts)

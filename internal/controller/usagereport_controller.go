@@ -34,6 +34,7 @@ import (
 
 	finopsv1alpha1 "github.com/defilantech/infercost/api/v1alpha1"
 	internalapi "github.com/defilantech/infercost/internal/api"
+	"github.com/defilantech/infercost/internal/calculator"
 	"github.com/defilantech/infercost/internal/scraper"
 	"github.com/defilantech/infercost/internal/utilization"
 )
@@ -145,23 +146,30 @@ func (r *UsageReportReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	// Active-hours amortized $/MTok: charge the full hourly cost over only the
+	// hours the GPUs actually served (capped at wall-clock), so the figure is
+	// not dominated by idle hours. Sits between marginal and fully-loaded.
+	activeHoursCostPerMillion := calculator.ActiveHoursCostPerMillionTokens(
+		profile.Status.HourlyCostUSD, activeHours, hoursInPeriod, totalTokens)
+
 	periodStr := formatPeriod(report.Spec.Schedule, periodStart)
 	computed := computedStatus{
-		period:                       periodStr,
-		periodStart:                  periodStart,
-		periodEnd:                    periodEnd,
-		inputTokens:                  totalIn,
-		outputTokens:                 totalOut,
-		totalCost:                    totalCost,
-		costPerMillionTokens:         costPerMillion,
-		marginalCostPerMillionTokens: marginalCostPerMillion,
-		activeEnergyKWh:              activeEnergyKWh,
-		byModel:                      byModel,
-		byNamespace:                  byNamespace,
-		utilizationPercent:           utilizationPercent,
-		gpuEfficiencyRatio:           gpuEfficiency,
-		activeHoursInPeriod:          activeHours,
-		totalHoursInPeriod:           hoursInPeriod,
+		period:                          periodStr,
+		periodStart:                     periodStart,
+		periodEnd:                       periodEnd,
+		inputTokens:                     totalIn,
+		outputTokens:                    totalOut,
+		totalCost:                       totalCost,
+		costPerMillionTokens:            costPerMillion,
+		marginalCostPerMillionTokens:    marginalCostPerMillion,
+		activeHoursCostPerMillionTokens: activeHoursCostPerMillion,
+		activeEnergyKWh:                 activeEnergyKWh,
+		byModel:                         byModel,
+		byNamespace:                     byNamespace,
+		utilizationPercent:              utilizationPercent,
+		gpuEfficiencyRatio:              gpuEfficiency,
+		activeHoursInPeriod:             activeHours,
+		totalHoursInPeriod:              hoursInPeriod,
 	}
 	// Silence unused-var warning when sampler is wired but period has no observations yet.
 	_ = totalHoursObserved
@@ -364,17 +372,18 @@ func buildBreakdowns(
 // passed from the computation phase to the write phase so the Reconcile entry
 // point stays short enough to read top-to-bottom.
 type computedStatus struct {
-	period                       string
-	periodStart                  time.Time
-	periodEnd                    time.Time
-	inputTokens                  int64
-	outputTokens                 int64
-	totalCost                    float64
-	costPerMillionTokens         float64
-	marginalCostPerMillionTokens float64
-	activeEnergyKWh              float64
-	byModel                      []finopsv1alpha1.ModelCostBreakdown
-	byNamespace                  []finopsv1alpha1.NamespaceCostBreakdown
+	period                          string
+	periodStart                     time.Time
+	periodEnd                       time.Time
+	inputTokens                     int64
+	outputTokens                    int64
+	totalCost                       float64
+	costPerMillionTokens            float64
+	marginalCostPerMillionTokens    float64
+	activeHoursCostPerMillionTokens float64
+	activeEnergyKWh                 float64
+	byModel                         []finopsv1alpha1.ModelCostBreakdown
+	byNamespace                     []finopsv1alpha1.NamespaceCostBreakdown
 	// utilization-derived fields (all zero when no sampler is wired)
 	utilizationPercent  float64
 	gpuEfficiencyRatio  float64
@@ -402,6 +411,7 @@ func (r *UsageReportReconciler) applyStatusIfChanged(ctx context.Context, report
 	report.Status.EstimatedCostUSD = c.totalCost
 	report.Status.CostPerMillionTokens = c.costPerMillionTokens
 	report.Status.MarginalCostPerMillionTokens = c.marginalCostPerMillionTokens
+	report.Status.ActiveHoursCostPerMillionTokens = c.activeHoursCostPerMillionTokens
 	report.Status.ActiveEnergyKWh = c.activeEnergyKWh
 	report.Status.ByModel = c.byModel
 	report.Status.ByNamespace = c.byNamespace

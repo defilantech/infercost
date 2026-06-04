@@ -31,6 +31,11 @@ spec:
       name: $/MTok (marginal)
       priority: 1
       type: number
+    - format: float
+      jsonPath: .status.activeHoursCostPerMillionTokens
+      name: $/MTok (active)
+      priority: 1
+      type: number
     - jsonPath: .status.inputTokens
       name: Input Tokens
       type: integer
@@ -108,6 +113,16 @@ spec:
                   activeEnergyKWh is the integrated energy drawn during active-threshold
                   time across the reporting period, derived from DCGM power samples.
                   Surfaced directly so operators can sanity-check the marginal cost math.
+                type: number
+              activeHoursCostPerMillionTokens:
+                description: |-
+                  activeHoursCostPerMillionTokens amortizes the full hourly cost (hardware
+                  amortization + electricity) over only the hours the GPUs were actively
+                  serving (capped at the wall-clock period). It sits between
+                  marginalCostPerMillionTokens (electricity only) and costPerMillionTokens
+                  (full wall-clock amortization): the cost per token if the hardware only
+                  cost money while it was working. Useful for sizing/efficiency comparisons
+                  that should not be penalized by idle hours.
                 type: number
               activeHoursInPeriod:
                 description: |-
