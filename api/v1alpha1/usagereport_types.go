@@ -143,6 +143,16 @@ type UsageReportStatus struct {
 	// +optional
 	MarginalCostPerMillionTokens float64 `json:"marginalCostPerMillionTokens,omitempty"`
 
+	// activeHoursCostPerMillionTokens amortizes the full hourly cost (hardware
+	// amortization + electricity) over only the hours the GPUs were actively
+	// serving (capped at the wall-clock period). It sits between
+	// marginalCostPerMillionTokens (electricity only) and costPerMillionTokens
+	// (full wall-clock amortization): the cost per token if the hardware only
+	// cost money while it was working. Useful for sizing/efficiency comparisons
+	// that should not be penalized by idle hours.
+	// +optional
+	ActiveHoursCostPerMillionTokens float64 `json:"activeHoursCostPerMillionTokens,omitempty"`
+
 	// activeEnergyKWh is the integrated energy drawn during active-threshold
 	// time across the reporting period, derived from DCGM power samples.
 	// Surfaced directly so operators can sanity-check the marginal cost math.
@@ -204,6 +214,7 @@ type UsageReportStatus struct {
 // +kubebuilder:printcolumn:name="Cost ($)",type=number,JSONPath=`.status.estimatedCostUSD`,format=float
 // +kubebuilder:printcolumn:name="$/MTok",type=number,JSONPath=`.status.costPerMillionTokens`,format=float
 // +kubebuilder:printcolumn:name="$/MTok (marginal)",type=number,JSONPath=`.status.marginalCostPerMillionTokens`,format=float,priority=1
+// +kubebuilder:printcolumn:name="$/MTok (active)",type=number,JSONPath=`.status.activeHoursCostPerMillionTokens`,format=float,priority=1
 // +kubebuilder:printcolumn:name="Input Tokens",type=integer,JSONPath=`.status.inputTokens`
 // +kubebuilder:printcolumn:name="Output Tokens",type=integer,JSONPath=`.status.outputTokens`
 // +kubebuilder:printcolumn:name="Util %",type=number,JSONPath=`.status.utilizationPercent`,format=float,priority=1

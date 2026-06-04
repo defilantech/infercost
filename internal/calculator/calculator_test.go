@@ -640,3 +640,53 @@ func TestCompareToCloud_EmptyPricing(t *testing.T) {
 		t.Errorf("expected 0 results for empty pricing, got %d", len(results))
 	}
 }
+
+func TestActiveHoursCostPerMillionTokens(t *testing.T) {
+	tests := []struct {
+		name           string
+		hourlyCost     float64
+		activeHours    float64
+		wallClockHours float64
+		totalTokens    int64
+		want           float64
+	}{
+		{
+			name:       "amortizes over active hours only",
+			hourlyCost: 0.5, activeHours: 4, wallClockHours: 24, totalTokens: 4_000_000,
+			want: 0.5, // (0.5 * 4) / (4M/1M) = 2.0 / 4 = 0.5
+		},
+		{
+			name:       "far below fully-loaded at low utilization",
+			hourlyCost: 1.0, activeHours: 2, wallClockHours: 24, totalTokens: 1_000_000,
+			want: 2.0, // active: (1*2)/1 = 2; fully-loaded would be (1*24)/1 = 24
+		},
+		{
+			name:       "caps active hours at wall-clock to guard sampler overcount",
+			hourlyCost: 1.0, activeHours: 100, wallClockHours: 24, totalTokens: 1_000_000,
+			want: 24.0, // min(100,24) = 24
+		},
+		{
+			name:       "zero tokens yields zero",
+			hourlyCost: 1.0, activeHours: 4, wallClockHours: 24, totalTokens: 0,
+			want: 0,
+		},
+		{
+			name:       "zero active hours yields zero",
+			hourlyCost: 1.0, activeHours: 0, wallClockHours: 24, totalTokens: 1_000_000,
+			want: 0,
+		},
+		{
+			name:       "zero hourly cost yields zero",
+			hourlyCost: 0, activeHours: 4, wallClockHours: 24, totalTokens: 1_000_000,
+			want: 0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ActiveHoursCostPerMillionTokens(tc.hourlyCost, tc.activeHours, tc.wallClockHours, tc.totalTokens)
+			if !almostEqual(got, tc.want) {
+				t.Errorf("ActiveHoursCostPerMillionTokens() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
