@@ -19,7 +19,9 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -71,9 +73,17 @@ func main() {
 	var metalEndpoint string
 	var apiAddr string
 	var pricingFile string
+	var dataDir string
+	var sampleRetention time.Duration
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&apiAddr, "api-bind-address", "",
 		"Address for the InferCost REST API (e.g. :8092). If empty, API server is disabled.")
+	flag.StringVar(&dataDir, "data-dir", "",
+		"Directory for the persistent power-sample store (bbolt). If empty, power samples are kept in memory only (48h). "+
+			"When set, samples are persisted so history survives restarts and monthly reports are exact.")
+	flag.DurationVar(&sampleRetention, "sample-retention", 0,
+		"How long to retain power samples. When --data-dir is set, defaults to 45 days; "+
+			"otherwise it is capped at the 48h in-memory window.")
 	flag.StringVar(&dcgmEndpoint, "dcgm-endpoint", "",
 		"DCGM exporter metrics endpoint URL (e.g. http://nvidia-dcgm-exporter.gpu-operator-resources.svc:9400/metrics). "+
 			"If empty, falls back to TDP-based power estimation from CostProfile spec.")
@@ -230,7 +240,20 @@ func main() {
 	// Shared utilization sampler: CostProfile writes per-tick power samples;
 	// UsageReport reads accumulated active/idle hours for its period. A
 	// single process-wide instance is sufficient (single-manager deployment).
-	powerSampler := utilization.NewSampler()
+	//
+	// When --data-dir is set, the sampler is backed by a bbolt store so power
+	// history survives restarts and monthly reports are exact. Otherwise it
+	// keeps an in-memory window (48h) as before.
+	powerSampler, featureErr := newPowerSampler(dataDir, sampleRetention)
+	if featureErr != nil {
+		setupLog.Error(featureErr, "Failed to configure power sample store")
+		os.Exit(1)
+	}
+	defer func() {
+		if err := powerSampler.Close(); err != nil {
+			setupLog.Error(err, "Failed to close power sample store")
+		}
+	}()
 
 	if err := (&controller.CostProfileReconciler{
 		Client:        mgr.GetClient(),
@@ -292,4 +315,39 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// newPowerSampler constructs the shared utilization sampler. When dataDir is
+// set it opens a bbolt-backed store so power samples persist across restarts
+// and monthly reports are exact; otherwise it keeps the in-memory 48h window.
+// The returned sampler owns the store (if any) and must be Close()d.
+func newPowerSampler(dataDir string, retention time.Duration) (*utilization.Sampler, error) {
+	if dataDir == "" {
+		setupLog.Info("no --data-dir set; power samples kept in memory only (48h)")
+		return utilization.NewSampler(), nil
+	}
+
+	storeDir, err := filepath.Abs(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving data dir: %w", err)
+	}
+	store, err := utilization.OpenStore(filepath.Join(storeDir, "samples.db"))
+	if err != nil {
+		return nil, err
+	}
+
+	effectiveRetention := utilization.DefaultStoreRetention
+	if retention > 0 {
+		effectiveRetention = retention
+	}
+	sampler, err := utilization.NewSamplerWithStore(effectiveRetention, store)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("hydrating sample store: %w", err)
+	}
+	setupLog.Info("power sample persistence enabled",
+		"dir", storeDir,
+		"retention", effectiveRetention.String(),
+	)
+	return sampler, nil
 }

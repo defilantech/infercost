@@ -57,6 +57,12 @@ spec:
         {{- if .Values.pricing.override.enabled }}
         - --pricing-file=/etc/infercost/pricing/cloud-pricing.yaml
         {{- end }}
+        {{- if .Values.sampleStore.enabled }}
+        - --data-dir=/var/lib/infercost
+        {{- if .Values.sampleStore.retention }}
+        - --sample-retention={{ .Values.sampleStore.retention }}
+        {{- end }}
+        {{- end }}
         ports:
         - name: health
           containerPort: 8081
@@ -86,6 +92,10 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- if .Values.sampleStore.enabled }}
+        - name: samples
+          mountPath: /var/lib/infercost
+        {{- end }}
         {{- if .Values.pricing.override.enabled }}
         - name: pricing
           mountPath: /etc/infercost/pricing
@@ -94,6 +104,18 @@ spec:
       volumes:
       - name: tmp
         emptyDir: {}
+      {{- if .Values.sampleStore.enabled }}
+      - name: samples
+        {{- if .Values.sampleStore.persistence.existingClaim }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.sampleStore.persistence.existingClaim }}
+        {{- else if .Values.sampleStore.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "infercost.fullname" . }}-samples
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- end }}
       {{- if .Values.pricing.override.enabled }}
       - name: pricing
         configMap:

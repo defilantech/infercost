@@ -28,7 +28,7 @@ InferCost sits at the intersection, combining hardware economics with token-leve
 
 ## What InferCost Does
 
-One controller pod. No database. No UI to host. Plugs into infrastructure you already run.
+One controller pod. No external database or UI to host. Plugs into infrastructure you already run.
 
 ```
 token_cost = (GPU_amortization + electricity x power_draw x PUE) / tokens_per_hour
@@ -49,6 +49,9 @@ token_cost = (GPU_amortization + electricity x power_draw x PUE) / tokens_per_ho
 - **CLI**: `infercost status`, `infercost compare`, `infercost export focus` for terminal analysis and FOCUS-compatible CSV export
 - **FOCUS-compatible export**: Drop InferCost data into Kubecost, Cloudability, or any FOCUS-aware BI pipeline. See [docs/focus-export.md](docs/focus-export.md).
 - **Pre-built Grafana dashboard**: Ships as JSON, auto-provisionable via sidecar
+- **Durable sample history**: Optional local bbolt-backed store (`--data-dir`)
+  keeps power samples across restarts and makes monthly reports exact rather
+  than extrapolated; retention is configurable. See [docs/cost-model.md](docs/cost-model.md).
 - **Multi-backend**: Scrapes llama.cpp and vLLM out of the box, selected per-pod via annotation
 
 ## Quick Start
