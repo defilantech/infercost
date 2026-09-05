@@ -110,16 +110,49 @@ yesterday's numbers.
 
 ## Samples and retention
 
-InferCost keeps the most recent 48 hours of samples in process memory.
-Daily and "week-to-date" reports are computed exactly from those
-samples. Monthly reports extrapolate linearly from the retained window
-for older hours — accurate enough for monthly attribution, not a
-substitute for a Prometheus-backed historian when operators need
-historical drilldown.
+InferCost records one power sample per CostProfile on every reconcile
+(30s), then computes active/idle hours and energy from them for each
+reporting period.
 
-Controller restarts reset the in-memory buffer. This is an MVP-level
-trade-off; a future iteration will persist samples to a ConfigMap or
-scrape them from the cluster's Prometheus.
+**Default (no `--data-dir`):** samples are kept in a 48-hour in-memory
+window. Daily and week-to-date reports are exact from that window;
+monthly reports extrapolate linearly for the older hours. A controller
+restart resets the buffer.
+
+**Persistent (with `--data-dir`):** the sampler is backed by a local
+bbolt file and retention defaults to 45 days, so daily, weekly, and
+monthly reports are all computed exactly from recorded samples rather
+than extrapolated, and history survives restarts. This is a local state
+file owned by the operator, not an external database to host.
+
+### Why a local store instead of Prometheus remote-write
+
+The cluster's Prometheus already scrapes the controller's
+`infercost_gpu_power_watts` gauge, so a remote-write path would be
+redundant for monitoring. But relying on Prometheus as the durable
+history source has two problems for a financial source of truth:
+
+- **Retention is not ours.** Prometheus retention is often 15 days by
+  default, so monthly accuracy would depend on whoever runs Prometheus
+  raising it. A local store keeps retention under our control.
+- **Threshold semantics.** The active/idle classification is captured
+  per sample (`ActiveW`) at record time, so raising the idle threshold
+  later never retroactively relabels old samples. Reading raw power back
+  from Prometheus re-derives classification at query time, silently
+  changing what a past period means.
+
+A local bbolt store keeps the operator self-contained, gives deterministic
+history, and remains a single-replica write, which bbolt handles cleanly.
+
+### Storage layout
+
+`--data-dir` points at a directory (default `/var/lib/infercost` in the
+Helm chart), and InferCost opens a `samples.db` inside it. In the chart,
+`sampleStore.enabled` enables the flag and mounts a volume; the default is
+an `emptyDir` (survives a container restart) and an optional PVC is
+available via `sampleStore.persistence.enabled` or an
+`existingClaim` for history that survives pod replacement. `--sample-retention`
+overrides the 45-day default.
 
 ## Grafana dashboard
 

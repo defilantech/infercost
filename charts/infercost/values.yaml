@@ -135,6 +135,30 @@ pricing:
     # starting template that operators can then edit in place.
     inline: ""
 
+# Power sample persistence. When enabled, the controller stores power samples
+# to a bbolt-backed file mounted under /var/lib/infercost so history survives
+# restarts and monthly reports are exact. When disabled, samples are kept in an
+# in-memory window only (48h). This is a local state file, not an external
+# database to host.
+sampleStore:
+  enabled: false
+  # Retention for power samples. When set, overrides the 45-day default.
+  # Ignored when enabled is false (the in-memory window is 48h).
+  retention: ""
+  # persistence controls how the volume is backed. The default is an emptyDir,
+  # which survives a container or process restart but not a pod re-create. Use
+  # a PVC (via a configured storage class or an existing claim) for history that
+  # survives node rescheduling and pod replacement.
+  persistence:
+    # When true, create a new PVC. When false, an emptyDir is used.
+    enabled: false
+    # Size of the created PVC.
+    size: 1Gi
+    # Storage class for the created PVC. Empty uses the cluster default.
+    storageClassName: ""
+    # Use an existing PVC by name instead of creating one.
+    existingClaim: ""
+
 # Pod annotations
 podAnnotations: {}
 

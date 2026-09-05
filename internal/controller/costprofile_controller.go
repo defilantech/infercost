@@ -139,7 +139,9 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if r.Sampler != nil {
 		threshold := resolveIdleThreshold(&profile)
 		sampleKey := sampleKeyFor(&profile)
-		r.Sampler.Record(sampleKey, totalPowerW, threshold)
+		if err := r.Sampler.Record(sampleKey, totalPowerW, threshold); err != nil {
+			log.Error(err, "failed to persist power sample", "profile", profile.Name)
+		}
 	}
 
 	// 3. Compute hourly costs.

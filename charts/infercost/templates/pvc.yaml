@@ -1,0 +1,18 @@
+{{- if and .Values.sampleStore.enabled .Values.sampleStore.persistence.enabled (not .Values.sampleStore.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "infercost.fullname" . }}-samples
+  namespace: {{ include "infercost.namespace" . }}
+  labels:
+    {{- include "infercost.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.sampleStore.persistence.storageClassName }}
+  storageClassName: {{ .Values.sampleStore.persistence.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.sampleStore.persistence.size }}
+{{- end }}

@@ -33,10 +33,22 @@ import (
 	"time"
 )
 
-// DefaultRetention is how far back the Sampler keeps samples. 48h is enough
-// for daily and weekly-so-far reports; monthly reports fall back to a linear
+// DefaultRetention is how far back the Sampler keeps samples when no
+// persistent store is configured. 48h is enough for daily and weekly-so-far
+// reports; without a store, monthly reports fall back to a linear
 // extrapolation of what's retained.
 const DefaultRetention = 48 * time.Hour
+
+// DefaultStoreRetention is how far back the Sampler keeps samples when a
+// persistent Store is configured. It is a bit longer than a calendar month so
+// daily, weekly, and monthly reports all compute exactly from recorded samples
+// rather than extrapolating from a short in-memory window.
+const DefaultStoreRetention = 45 * 24 * time.Hour
+
+// pruneInterval throttles store pruning so it doesn't run a full-scan delete
+// on every Record (which fires every 30s per CostProfile). Samples are pruned
+// at most this often; the worst-case over-retention is bounded by this window.
+const pruneInterval = 15 * time.Minute
 
 // Sample is a single power-draw observation for a CostProfile.
 type Sample struct {
@@ -48,12 +60,49 @@ type Sample struct {
 // Sampler is concurrency-safe. A single Sampler instance is shared between the
 // CostProfile reconciler (which records samples on every tick) and the
 // UsageReport reconciler (which queries totals over a period).
+//
+// When a Store is attached, every sample is persisted and the Sampler hydrates
+// its in-memory window from the store on startup, so history survives restarts.
+// Without a Store, the Sampler keeps an in-memory window only.
 type Sampler struct {
 	retention time.Duration
 	mu        sync.Mutex
 	// samples indexed by CostProfile key ("namespace/name"), ordered by timestamp.
 	samples map[string][]Sample
 	now     func() time.Time // injectable for tests
+	// store persists samples across restarts. When nil, the Sampler is
+	// pure in-memory (the pre-persistence behaviour).
+	store *Store
+	// lastPrune tracks the last store prune so retention cleanup runs at
+	// most every pruneInterval rather than on every Record.
+	lastPrune time.Time
+}
+
+// Close closes the backing Store, if any, releasing the bbolt file lock. It is
+// safe to call more than once and safe on a pure in-memory Sampler.
+func (s *Sampler) Close() error {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	return s.store.Close()
+}
+
+// NewSamplerWithStore returns a Sampler backed by a persistent Store. It
+// hydrates the in-memory window from everything the store retains within the
+// retention window, so a controller restart does not lose history. Returns an
+// error only when hydration fails, in which case the caller should fail loud
+// rather than silently start with an empty window.
+func NewSamplerWithStore(retention time.Duration, store *Store) (*Sampler, error) {
+	s := &Sampler{
+		retention: retention,
+		samples:   make(map[string][]Sample),
+		now:       time.Now,
+		store:     store,
+	}
+	if err := s.hydrate(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // NewSampler returns a Sampler with the default retention window and
@@ -76,16 +125,31 @@ func NewSamplerWithRetention(retention time.Duration) *Sampler {
 // Record appends a sample for the given CostProfile key. Samples older than
 // the retention window are GC'd on the same call to keep memory bounded.
 // Concurrent callers are fine — the map is protected by mu.
-func (s *Sampler) Record(key string, powerW, activeThresholdW float64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+//
+// When a Store is attached, the sample is first persisted so it survives a
+// restart, then appended to the in-memory window. A persistence failure is
+// returned so the caller can surface it; the sample is not added to memory in
+// that case, so a living window never diverges from what is durable.
+func (s *Sampler) Record(key string, powerW, activeThresholdW float64) error {
 	now := s.now()
-	s.samples[key] = append(s.samples[key], Sample{
+	sample := Sample{
 		At:      now,
 		PowerW:  powerW,
 		ActiveW: activeThresholdW,
-	})
+	}
+
+	if s.store != nil {
+		if err := s.store.Append(key, sample); err != nil {
+			return err
+		}
+		s.pruneStore(now)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.samples[key] = append(s.samples[key], sample)
 	s.gcLocked(key, now)
+	return nil
 }
 
 // WindowSummary describes the aggregated behavior of a CostProfile over a
@@ -176,6 +240,52 @@ func (s *Sampler) Snapshot(key string) []Sample {
 	dst := make([]Sample, len(src))
 	copy(dst, src)
 	return dst
+}
+
+// hydrate loads every retained sample from the store into the in-memory
+// window. It is called once at construction. Samples are restored with their
+// original classification (the ActiveW captured at record time), so a
+// threshold change after a restart still respects the threshold in effect when
+// each sample was recorded.
+func (s *Sampler) hydrate() error {
+	if s.store == nil {
+		return nil
+	}
+	now := s.now()
+	cutoff := now.Add(-s.retention)
+
+	keys, err := s.store.Keys()
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		samples, err := s.store.LoadRange(key, cutoff, now)
+		if err != nil {
+			return err
+		}
+		s.mu.Lock()
+		s.samples[key] = samples
+		s.mu.Unlock()
+	}
+	return nil
+}
+
+// pruneStore removes persisted samples older than the retention window. It
+// runs at most every pruneInterval so the periodic full-scan delete does not
+// fire on every Record (30s per CostProfile). The in-memory GC (gcLocked) is
+// already correct on every Record; this keeps the durable store bounded too.
+func (s *Sampler) pruneStore(now time.Time) {
+	if s.store == nil {
+		return
+	}
+	if !s.lastPrune.IsZero() && now.Sub(s.lastPrune) < pruneInterval {
+		return
+	}
+	s.lastPrune = now
+	// Best-effort: a prune failure should not fail a reconcile; the store is
+	// bounded by the next successful prune, and an over-retention bounded by
+	// one pruneInterval is harmless for report accuracy.
+	_ = s.store.Prune(now.Add(-s.retention))
 }
 
 // gcLocked drops samples older than the retention window. Caller must hold mu.
