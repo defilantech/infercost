@@ -93,10 +93,18 @@ func (s *Sampler) Close() error {
 // error only when hydration fails, in which case the caller should fail loud
 // rather than silently start with an empty window.
 func NewSamplerWithStore(retention time.Duration, store *Store) (*Sampler, error) {
+	return newSamplerWithStore(retention, store, time.Now)
+}
+
+// newSamplerWithStore is the testable form of NewSamplerWithStore: it accepts
+// the clock so hydration uses the same injected now() the tests already drive.
+// A test that records samples against a fixedClock must hydrate against the
+// same clock, or the retention window is computed on an unrelated wall clock.
+func newSamplerWithStore(retention time.Duration, store *Store, now func() time.Time) (*Sampler, error) {
 	s := &Sampler{
 		retention: retention,
 		samples:   make(map[string][]Sample),
-		now:       time.Now,
+		now:       now,
 		store:     store,
 	}
 	if err := s.hydrate(); err != nil {

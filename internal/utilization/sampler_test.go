@@ -237,12 +237,11 @@ func TestSampler_PersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("OpenStore: %v", err)
 	}
 
-	s, err := NewSamplerWithStore(DefaultStoreRetention, store)
-	if err != nil {
-		t.Fatalf("NewSamplerWithStore: %v", err)
-	}
 	clock := &fixedClock{cur: time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)}
-	s.now = clock.now
+	s, err := newSamplerWithStore(DefaultStoreRetention, store, clock.now)
+	if err != nil {
+		t.Fatalf("newSamplerWithStore: %v", err)
+	}
 	start := clock.now()
 
 	if err := s.Record("cluster/a", 300, 50); err != nil {
@@ -259,7 +258,8 @@ func TestSampler_PersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("unexpected pre-restart summary: %+v", want)
 	}
 
-	// Simulate restart: close store, reopen, rehydrate a fresh sampler.
+	// Simulate restart: close store, reopen, rehydrate a fresh sampler. It must
+	// hydrate using the same clock so the retention window is deterministic.
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestSampler_PersistsAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	s2, err := NewSamplerWithStore(DefaultStoreRetention, store2)
+	s2, err := newSamplerWithStore(DefaultStoreRetention, store2, clock.now)
 	if err != nil {
 		t.Fatalf("rehydrate: %v", err)
 	}
@@ -356,15 +356,18 @@ func TestSampler_RecordSurfacesPersistenceError(t *testing.T) {
 func TestSampler_HydrateRespectsRetentionCutoff(t *testing.T) {
 	// Rehydrating a sampler must only load samples within the retention window;
 	// anything older is left in the store but not loaded, so the in-memory
-	// window stays bounded by retention.
+	// window stays bounded by retention. An injected clock keeps the retention
+	// window deterministic regardless of the wall clock.
 	dir := t.TempDir()
 	store, err := OpenStore(filepath.Join(dir, "samples.db"))
 	if err != nil {
 		t.Fatalf("OpenStore: %v", err)
 	}
+	defer func() { _ = store.Close() }()
 
-	old := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	recent := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
+	clock := &fixedClock{cur: time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)}
+	recent := clock.now().Add(-time.Hour)
+	old := clock.now().Add(-48 * time.Hour)
 	if err := store.Append("cluster/a", Sample{At: old, PowerW: 100, ActiveW: 50}); err != nil {
 		t.Fatalf("Append old: %v", err)
 	}
@@ -373,9 +376,9 @@ func TestSampler_HydrateRespectsRetentionCutoff(t *testing.T) {
 	}
 
 	// A short retention (24h) makes `old` fall outside the window.
-	s, err := NewSamplerWithStore(24*time.Hour, store)
+	s, err := newSamplerWithStore(24*time.Hour, store, clock.now)
 	if err != nil {
-		t.Fatalf("NewSamplerWithStore: %v", err)
+		t.Fatalf("newSamplerWithStore: %v", err)
 	}
 	defer func() { _ = s.Close() }()
 
