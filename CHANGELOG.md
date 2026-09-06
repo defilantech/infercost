@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/defilantech/infercost/compare/v0.5.0...v0.6.0) (2026-09-06)
+
+
+### Features
+
+* persist power samples to a bbolt-backed store for durable history ([#86](https://github.com/defilantech/infercost/issues/86)) ([db901cd](https://github.com/defilantech/infercost/commit/db901cdad2b3cd5e7156ba0d48243f04aaf5c232))
+
+
+### Bug Fixes
+
+* make durable sample tests deterministic ([#88](https://github.com/defilantech/infercost/issues/88)) ([61553d6](https://github.com/defilantech/infercost/commit/61553d66f0c455f8c6ecdb7c976f52ce76f9365b))
+
 ## [0.5.0](https://github.com/defilantech/infercost/compare/v0.4.0...v0.5.0) (2026-06-04)
 
 
