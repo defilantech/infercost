@@ -70,6 +70,61 @@ type ElectricitySpec struct {
 	IdleWattsThreshold *float64 `json:"idleWattsThreshold,omitempty"`
 }
 
+// FacilitySpec declares recurring facility costs that do not depend on power
+// draw: a colocation cage or rack, a flat-rate power allocation (a committed
+// number of kW billed the same whatever is drawn), network connectivity. They
+// are spread evenly over the hours of the month and added to the hourly cost
+// like hardware amortization. Power billed this way belongs here, with
+// electricity.ratePerKWh set to 0, rather than as an effective per-kWh rate:
+// a flat fee costs the same at any draw, so the marginal energy cost of a
+// token under it is zero.
+type FacilitySpec struct {
+	// recurring lists the facility's fixed monthly charges.
+	// +kubebuilder:validation:MinItems=1
+	// +listType=map
+	// +listMapKey=name
+	// +required
+	Recurring []RecurringCost `json:"recurring"`
+
+	// share is the fraction of these charges this profile carries, for when
+	// several profiles share one contract. Defaults to 1 (the whole contract).
+	// +kubebuilder:validation:ExclusiveMinimum=true
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	// +optional
+	Share *float64 `json:"share,omitempty"`
+}
+
+// MonthlyUSD is the facility charges this profile carries per month: the
+// recurring charges summed, times share (1 when unset). A nil facility is 0.
+func (f *FacilitySpec) MonthlyUSD() float64 {
+	if f == nil {
+		return 0
+	}
+	var sum float64
+	for _, c := range f.Recurring {
+		sum += c.MonthlyUSD
+	}
+	if f.Share != nil {
+		sum *= *f.Share
+	}
+	return sum
+}
+
+// RecurringCost is one fixed monthly charge.
+type RecurringCost struct {
+	// name identifies the charge, for example "space", "power" or "network".
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +required
+	Name string `json:"name"`
+
+	// monthlyUSD is the charge per month in USD.
+	// +kubebuilder:validation:Minimum=0
+	// +required
+	MonthlyUSD float64 `json:"monthlyUSD"`
+}
+
 // CloudTarget names a specific cloud provider + model to compute break-even
 // against. Both must match an entry in the bundled cloud pricing catalog
 // (case-insensitive); unknown targets are skipped and surfaced via a status
@@ -119,11 +174,17 @@ type CostProfileSpec struct {
 	// against. When omitted, a sensible mid-tier default per provider is used.
 	// +optional
 	CloudComparison *CloudComparisonSpec `json:"cloudComparison,omitempty"`
+
+	// facility declares fixed recurring facility costs (colocation space,
+	// flat-rate power, connectivity) that do not depend on power draw.
+	// +optional
+	Facility *FacilitySpec `json:"facility,omitempty"`
 }
 
 // CostProfileStatus defines the computed state of a CostProfile.
 type CostProfileStatus struct {
-	// hourlyCostUSD is the total computed hourly cost (amortization + electricity).
+	// hourlyCostUSD is the total computed hourly cost: amortization, electricity
+	// and facility.
 	// +optional
 	HourlyCostUSD float64 `json:"hourlyCostUSD,omitempty"`
 
@@ -134,6 +195,11 @@ type CostProfileStatus struct {
 	// electricityCostPerHour is the electricity component of hourly cost at current power draw.
 	// +optional
 	ElectricityCostPerHour float64 `json:"electricityCostPerHour,omitempty"`
+
+	// facilityCostPerHour is the facility component of hourly cost: the
+	// recurring monthly charges times share, spread over the hours of a month.
+	// +optional
+	FacilityCostPerHour float64 `json:"facilityCostPerHour,omitempty"`
 
 	// currentPowerDrawWatts is the real-time total GPU power draw from DCGM.
 	// +optional

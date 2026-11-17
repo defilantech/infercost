@@ -410,6 +410,7 @@ func computeBreakEven(profile *finopsv1alpha1.CostProfile, totalIn, totalOut int
 
 	dailyHardwareCost := calculator.DailyHardwareCost(
 		profile.Status.AmortizationRatePerHour,
+		profile.Status.FacilityCostPerHour,
 		resolveIdleThreshold(profile),
 		profile.Spec.Electricity.RatePerKWh,
 		profile.Spec.Electricity.PUEFactor,

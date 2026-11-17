@@ -106,6 +106,7 @@ appears in finance exports.
 | `x-InferAmortizationYears` | Amortization window from the profile |
 | `x-InferElectricityRatePerKWh` | Rate from the profile |
 | `x-InferPUEFactor` | PUE from the profile |
+| `x-InferFacilityMonthlyUSD` | Facility charges the profile carries per month (its `facility.recurring` total times `share`), already part of the row's cost; `0` without a facility block |
 | `x-InferCloudEquivalentProvider` | Provider with highest savings vs on-prem |
 | `x-InferCloudEquivalentModel` | Model name in that provider |
 | `x-InferCloudEquivalentCostUSD` | What the tokens would have cost there |

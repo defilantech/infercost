@@ -9,12 +9,18 @@ type HardwareCosts struct {
 	MaintenancePercentPerYear float64
 	RatePerKWh                float64
 	PUEFactor                 float64
+	// FacilityMonthlyUSD is the fixed facility charges (colocation space,
+	// flat-rate power, connectivity) this profile carries per month.
+	FacilityMonthlyUSD float64
 }
 
 // CostResult contains the computed cost metrics.
 type CostResult struct {
 	// Static costs (don't change with power draw)
 	AmortizationPerHour float64
+
+	// Fixed facility charges spread over the month (don't change with power draw)
+	FacilityPerHour float64
 
 	// Dynamic costs (depend on real-time power draw)
 	ElectricityPerHour float64
@@ -28,9 +34,9 @@ type CostResult struct {
 	GPUEfficiencyRatio float64 // 0-1, fraction of time GPUs are active
 }
 
-// ComputeHourlyCost calculates the hourly infrastructure cost from hardware economics
-// and current power draw.
-func ComputeHourlyCost(hw HardwareCosts, powerDrawWatts float64) (amortization, electricity, total float64) {
+// ComputeHourlyCost calculates the hourly infrastructure cost from hardware economics,
+// fixed facility charges and current power draw.
+func ComputeHourlyCost(hw HardwareCosts, powerDrawWatts float64) (amortization, electricity, facility, total float64) {
 	hoursPerYear := float64(8760)
 	totalYears := float64(hw.AmortizationYears)
 
@@ -45,7 +51,11 @@ func ComputeHourlyCost(hw HardwareCosts, powerDrawWatts float64) (amortization, 
 	}
 	electricity = powerKW * hw.RatePerKWh * pue
 
-	total = amortization + electricity
+	// Facility: the monthly charges spread over the hours of an average month
+	// (8760 / 12 = 730), whatever is drawn.
+	facility = hw.FacilityMonthlyUSD * 12 / hoursPerYear
+
+	total = amortization + electricity + facility
 	return
 }
 
@@ -112,7 +122,7 @@ func ActiveHoursCostPerMillionTokens(hourlyCost, activeHours, wallClockHours flo
 
 // ComputeFull runs the complete cost calculation pipeline.
 func ComputeFull(hw HardwareCosts, powerDrawWatts float64, prev, curr TokenSnapshot) CostResult {
-	amort, elec, total := ComputeHourlyCost(hw, powerDrawWatts)
+	amort, elec, facility, total := ComputeHourlyCost(hw, powerDrawWatts)
 	inputRate, outputRate, totalRate := ComputeTokenRate(prev, curr)
 
 	cpt := ComputeCostPerToken(total, totalRate)
@@ -134,6 +144,7 @@ func ComputeFull(hw HardwareCosts, powerDrawWatts float64, prev, curr TokenSnaps
 
 	return CostResult{
 		AmortizationPerHour:  amort,
+		FacilityPerHour:      facility,
 		ElectricityPerHour:   elec,
 		TotalPerHour:         total,
 		CostPerToken:         cpt,
@@ -191,18 +202,19 @@ func CompareToCloud(inputTokens, outputTokens int64, onPremCostUSD float64, pric
 }
 
 // DailyHardwareCost returns the fixed daily cost of owning the hardware: the
-// amortization charged for 24h plus the electricity the GPUs draw while idle
-// for a full day. This is the numerator of the break-even calculation — the
+// amortization and facility charges for 24h plus the electricity the GPUs draw
+// while idle for a full day. This is the numerator of the break-even calculation — the
 // cost that must be covered by serving tokens before on-prem beats the cloud.
 // pueFactor <= 0 is treated as 1.0.
-func DailyHardwareCost(amortizationPerHour, idleWatts, ratePerKWh, pueFactor float64) float64 {
+func DailyHardwareCost(amortizationPerHour, facilityPerHour, idleWatts, ratePerKWh, pueFactor float64) float64 {
 	pue := pueFactor
 	if pue <= 0 {
 		pue = 1.0
 	}
 	amortizationPerDay := amortizationPerHour * 24.0
+	facilityPerDay := facilityPerHour * 24.0
 	idleElectricityPerDay := (idleWatts / 1000.0) * 24.0 * ratePerKWh * pue
-	return amortizationPerDay + idleElectricityPerDay
+	return amortizationPerDay + facilityPerDay + idleElectricityPerDay
 }
 
 // CloudCostPerToken returns the blended USD-per-token rate for a cloud model,

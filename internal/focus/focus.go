@@ -77,6 +77,7 @@ var Columns = []string{
 	"x-InferAmortizationYears",
 	"x-InferElectricityRatePerKWh",
 	"x-InferPUEFactor",
+	"x-InferFacilityMonthlyUSD",
 	"x-InferCloudEquivalentProvider",
 	"x-InferCloudEquivalentModel",
 	"x-InferCloudEquivalentCostUSD",
@@ -260,6 +261,7 @@ func buildRow(
 		strconv.FormatInt(int64(profile.Spec.Hardware.AmortizationYears), 10),
 		strconv.FormatFloat(profile.Spec.Electricity.RatePerKWh, 'f', -1, 64),
 		strconv.FormatFloat(profile.Spec.Electricity.PUEFactor, 'f', -1, 64),
+		strconv.FormatFloat(profile.Spec.Facility.MonthlyUSD(), 'f', -1, 64),
 	}
 
 	if best != nil {

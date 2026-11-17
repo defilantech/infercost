@@ -16,6 +16,7 @@ type CostData struct {
 	HourlyCostUSD     float64 `json:"hourlyCostUSD"`
 	AmortizationPerHr float64 `json:"amortizationPerHourUSD"`
 	ElectricityPerHr  float64 `json:"electricityPerHourUSD"`
+	FacilityPerHr     float64 `json:"facilityPerHourUSD"`
 	PowerDrawWatts    float64 `json:"powerDrawWatts"`
 	MonthlyProjected  float64 `json:"monthlyProjectedUSD"`
 	YearlyProjected   float64 `json:"yearlyProjectedUSD"`

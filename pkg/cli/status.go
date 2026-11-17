@@ -85,16 +85,17 @@ func runStatus(opts *statusOptions) error {
 	fmt.Println("INFRASTRUCTURE COSTS")
 	fmt.Println("====================")
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintf(w, "PROFILE\tGPU MODEL\tGPUs\t$/HOUR\tAMORT\tELEC\tPOWER\tAGE\n")
+	_, _ = fmt.Fprintf(w, "PROFILE\tGPU MODEL\tGPUs\t$/HOUR\tAMORT\tELEC\tFACILITY\tPOWER\tAGE\n")
 	for _, p := range profiles.Items {
 		age := formatAge(time.Since(p.CreationTimestamp.Time))
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t$%.4f\t$%.4f\t$%.4f\t%.1fW\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t$%.4f\t$%.4f\t$%.4f\t$%.4f\t%.1fW\t%s\n",
 			p.Name,
 			p.Spec.Hardware.GPUModel,
 			p.Spec.Hardware.GPUCount,
 			p.Status.HourlyCostUSD,
 			p.Status.AmortizationRatePerHour,
 			p.Status.ElectricityCostPerHour,
+			p.Status.FacilityCostPerHour,
 			p.Status.CurrentPowerDrawWatts,
 			age,
 		)
