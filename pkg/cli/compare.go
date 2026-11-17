@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -136,6 +137,13 @@ func runCompare(opts *compareOptions) error {
 		profile.Spec.Hardware.PurchasePriceUSD, profile.Spec.Hardware.AmortizationYears)
 	fmt.Printf("Electricity:     $%.2f/kWh, PUE %.1f\n",
 		profile.Spec.Electricity.RatePerKWh, profile.Spec.Electricity.PUEFactor)
+	if facility := profile.Spec.Facility; facility != nil {
+		names := make([]string, 0, len(facility.Recurring))
+		for _, c := range facility.Recurring {
+			names = append(names, c.Name)
+		}
+		fmt.Printf("Facility:        $%.2f/month fixed (%s)\n", facility.MonthlyUSD(), strings.Join(names, ", "))
+	}
 	fmt.Printf("Current Power:   %.1fW\n", profile.Status.CurrentPowerDrawWatts)
 	fmt.Printf("Uptime:          %.1f hours\n", hoursRunning)
 	fmt.Println()

@@ -31,7 +31,7 @@ InferCost sits at the intersection, combining hardware economics with token-leve
 One controller pod. No external database or UI to host. Plugs into infrastructure you already run.
 
 ```
-token_cost = (GPU_amortization + electricity x power_draw x PUE) / tokens_per_hour
+token_cost = (GPU_amortization + facility + electricity x power_draw x PUE) / tokens_per_hour
   -> attributed per team and per user
     -> compared against what OpenAI, Anthropic, or Google would charge
 ```

@@ -108,6 +108,58 @@ future samples only — previously-recorded samples keep their original
 classification, so changing the threshold doesn't retroactively rewrite
 yesterday's numbers.
 
+## Colocation and flat-rate power
+
+Many colocation contracts, and some on-prem setups, don't bill power by the
+kWh. They charge a fixed monthly fee for the cage or rack, a fixed fee for a
+committed power allocation (so many kW, billed the same whatever you draw),
+and a fixed fee for connectivity. Put those charges in `spec.facility` and set
+`electricity.ratePerKWh` to `0`:
+
+```yaml
+spec:
+  hardware:
+    gpuModel: "NVIDIA H100 SXM5"
+    gpuCount: 8
+    purchasePriceUSD: 280000
+    amortizationYears: 3
+  electricity:
+    ratePerKWh: 0     # power is in the flat fee
+    pueFactor: 1.0    # cooling is in the fee too
+  facility:
+    recurring:
+      - name: space
+        monthlyUSD: 4000
+      - name: power
+        monthlyUSD: 3000
+      - name: network
+        monthlyUSD: 500
+    share: 1.0        # optional: the fraction this profile carries
+```
+
+InferCost spreads the monthly total over the hours of an average month
+(8760 / 12 = 730) and adds it to the hourly cost, like amortization: $7,500 a
+month is about $10.27 an hour, reported as `status.facilityCostPerHour` and
+the `infercost_facility_per_hour_usd` gauge. From there:
+
+- `estimatedCostUSD`, `costPerMillionTokens` and the active-hours figure
+  include it, because they're built from the hourly cost.
+- `marginalCostPerMillionTokens` stays electricity only, so under flat power
+  it is `0`. That is the honest answer: once the allocation is paid for, a
+  token costs nothing more in power.
+- Break-even counts it as a fixed daily cost, like amortization.
+
+Why not turn the power fee into an effective `ratePerKWh`? The fee doesn't
+change with your draw, so any per-kWh rate is right at only one load: a fee
+that works out to $0.30/kWh at the full allocation is closer to $1/kWh at a
+third of it. The electricity line would also move with draw while the bill
+doesn't, and the marginal cost would come out above zero.
+
+Use `share` when several CostProfiles split one contract, for example two node
+pools in the same cage: give each the fraction of the charges it should carry
+(by committed power, rack units, or however you split the bill). It must be
+greater than 0 and at most 1, and defaults to 1.
+
 ## Samples and retention
 
 InferCost records one power sample per CostProfile on every reconcile

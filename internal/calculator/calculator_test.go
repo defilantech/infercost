@@ -116,7 +116,10 @@ func TestComputeHourlyCost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotAmort, gotElec, gotTotal := ComputeHourlyCost(tt.hw, tt.powerDrawWatts)
+			gotAmort, gotElec, gotFacility, gotTotal := ComputeHourlyCost(tt.hw, tt.powerDrawWatts)
+			if gotFacility != 0 {
+				t.Errorf("facility = %v, want 0 for a profile with no facility costs", gotFacility)
+			}
 
 			if !almostEqual(gotAmort, tt.wantAmort) {
 				t.Errorf("amortization = %v, want %v", gotAmort, tt.wantAmort)
@@ -138,9 +141,35 @@ func TestComputeHourlyCost_ComponentRelationship(t *testing.T) {
 		RatePerKWh:        0.08,
 		PUEFactor:         1.0,
 	}
-	amort, elec, total := ComputeHourlyCost(hw, 150.0)
-	if !almostEqual(total, amort+elec) {
-		t.Errorf("total (%v) should equal amortization (%v) + electricity (%v)", total, amort, elec)
+	amort, elec, facility, total := ComputeHourlyCost(hw, 150.0)
+	if !almostEqual(total, amort+elec+facility) {
+		t.Errorf("total (%v) should equal amortization (%v) + electricity (%v) + facility (%v)", total, amort, elec, facility)
+	}
+}
+
+// TestComputeHourlyCost_Facility pins the facility term: a flat monthly
+// charge spread over the 730 hours of an average month, added to the total
+// whatever the power draw, while ratePerKWh 0 (power inside the flat fee)
+// keeps electricity at zero.
+func TestComputeHourlyCost_Facility(t *testing.T) {
+	hw := HardwareCosts{
+		PurchasePriceUSD:   8760.0, // $1/hour over one year
+		AmortizationYears:  1,
+		RatePerKWh:         0,
+		PUEFactor:          1.0,
+		FacilityMonthlyUSD: 730.0, // $1/hour
+	}
+	for _, watts := range []float64{0, 1000, 14000} {
+		amort, elec, facility, total := ComputeHourlyCost(hw, watts)
+		if !almostEqual(facility, 1.0) {
+			t.Errorf("at %vW facility = %v, want 1.0", watts, facility)
+		}
+		if elec != 0 {
+			t.Errorf("at %vW electricity = %v, want 0 with ratePerKWh 0", watts, elec)
+		}
+		if !almostEqual(amort, 1.0) || !almostEqual(total, 2.0) {
+			t.Errorf("at %vW amortization = %v, total = %v, want 1.0 and 2.0", watts, amort, total)
+		}
 	}
 }
 
@@ -695,19 +724,21 @@ func TestDailyHardwareCost(t *testing.T) {
 	tests := []struct {
 		name                string
 		amortizationPerHour float64
+		facilityPerHour     float64
 		idleWatts           float64
 		ratePerKWh          float64
 		pueFactor           float64
 		want                float64
 	}{
-		{"amort + idle electricity", 1.0, 100, 0.10, 1.0, 24.0 + 0.24}, // 24 + 0.1kW*24h*0.10
-		{"pue <= 0 treated as 1.0", 1.0, 100, 0.10, 0, 24.24},
-		{"pue multiplier applies to idle", 1.0, 100, 0.10, 1.5, 24.0 + 0.36},
-		{"zero idle watts is amortization only", 1.0, 0, 0.10, 1.0, 24.0},
+		{"amort + idle electricity", 1.0, 0, 100, 0.10, 1.0, 24.0 + 0.24}, // 24 + 0.1kW*24h*0.10
+		{"pue <= 0 treated as 1.0", 1.0, 0, 100, 0.10, 0, 24.24},
+		{"pue multiplier applies to idle", 1.0, 0, 100, 0.10, 1.5, 24.0 + 0.36},
+		{"zero idle watts is amortization only", 1.0, 0, 0, 0.10, 1.0, 24.0},
+		{"facility is a fixed daily cost", 1.0, 2.0, 100, 0, 1.0, 24.0 + 48.0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := DailyHardwareCost(tc.amortizationPerHour, tc.idleWatts, tc.ratePerKWh, tc.pueFactor)
+			got := DailyHardwareCost(tc.amortizationPerHour, tc.facilityPerHour, tc.idleWatts, tc.ratePerKWh, tc.pueFactor)
 			if !almostEqual(got, tc.want) {
 				t.Errorf("DailyHardwareCost() = %v, want %v", got, tc.want)
 			}
