@@ -301,8 +301,9 @@ spec:
                   recurring monthly charges times share, spread over the hours of a month.
                 type: number
               hourlyCostUSD:
-                description: hourlyCostUSD is the total computed hourly cost (amortization
-                  + electricity
+                description: |-
+                  hourlyCostUSD is the total computed hourly cost: amortization, electricity
+                  and facility.
                 type: number
               lastUpdated:
                 description: lastUpdated is the timestamp of the last cost computation.

@@ -183,8 +183,8 @@ type CostProfileSpec struct {
 
 // CostProfileStatus defines the computed state of a CostProfile.
 type CostProfileStatus struct {
-	// hourlyCostUSD is the total computed hourly cost (amortization + electricity
-	// + facility).
+	// hourlyCostUSD is the total computed hourly cost: amortization, electricity
+	// and facility.
 	// +optional
 	HourlyCostUSD float64 `json:"hourlyCostUSD,omitempty"`
 
