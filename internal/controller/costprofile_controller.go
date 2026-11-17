@@ -124,6 +124,7 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		MaintenancePercentPerYear: profile.Spec.Hardware.MaintenancePercentPerYear,
 		RatePerKWh:                profile.Spec.Electricity.RatePerKWh,
 		PUEFactor:                 profile.Spec.Electricity.PUEFactor,
+		FacilityMonthlyUSD:        profile.Spec.Facility.MonthlyUSD(),
 	}
 
 	// 2. Scrape real-time power draw from whichever backend is configured for
@@ -145,7 +146,7 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// 3. Compute hourly costs.
-	amort, elec, total := calculator.ComputeHourlyCost(hw, totalPowerW)
+	amort, elec, facility, total := calculator.ComputeHourlyCost(hw, totalPowerW)
 
 	// 4. Update Prometheus metrics for infrastructure costs.
 	node := profile.Spec.NodeSelector["kubernetes.io/hostname"]
@@ -157,6 +158,7 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	).Set(total)
 	infercostmetrics.AmortizationPerHour.WithLabelValues(profile.Name, node).Set(amort)
 	infercostmetrics.ElectricityPerHour.WithLabelValues(profile.Name, node).Set(elec)
+	infercostmetrics.FacilityPerHour.WithLabelValues(profile.Name, node).Set(facility)
 
 	// 5. Find inference pods and scrape token metrics.
 	if err := r.scrapeInferencePods(ctx, profile, total); err != nil {
@@ -168,6 +170,7 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	profile.Status.HourlyCostUSD = total
 	profile.Status.AmortizationRatePerHour = amort
 	profile.Status.ElectricityCostPerHour = elec
+	profile.Status.FacilityCostPerHour = facility
 	profile.Status.CurrentPowerDrawWatts = totalPowerW
 	profile.Status.LastUpdated = &now
 
@@ -175,7 +178,7 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
 		Reason:             "CostComputed",
-		Message:            fmt.Sprintf("Hourly cost: $%.4f (amort: $%.4f, elec: $%.4f)", total, amort, elec),
+		Message:            fmt.Sprintf("Hourly cost: $%.4f (amort: $%.4f, elec: $%.4f, facility: $%.4f)", total, amort, elec, facility),
 		LastTransitionTime: now,
 	})
 	powerCondition.LastTransitionTime = now
@@ -196,6 +199,7 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			HourlyCostUSD:     total,
 			AmortizationPerHr: amort,
 			ElectricityPerHr:  elec,
+			FacilityPerHr:     facility,
 			PowerDrawWatts:    totalPowerW,
 			MonthlyProjected:  total * 24 * 30,
 			YearlyProjected:   total * 8760,
@@ -213,6 +217,7 @@ func (r *CostProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		"powerDraw", fmt.Sprintf("%.1fW", totalPowerW),
 		"amortization", fmt.Sprintf("$%.4f/hr", amort),
 		"electricity", fmt.Sprintf("$%.4f/hr", elec),
+		"facility", fmt.Sprintf("$%.4f/hr", facility),
 	)
 
 	return ctrl.Result{RequeueAfter: reconcileInterval}, nil

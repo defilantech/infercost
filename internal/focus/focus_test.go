@@ -329,3 +329,44 @@ func TestWrite_EmptyInputEmitsOnlyHeader(t *testing.T) {
 		t.Errorf("expected only the header line, got %d lines", strings.Count(output, "\n"))
 	}
 }
+
+// TestWrite_FacilityMonthlyColumn: the facility charges this profile carries
+// (the recurring sum times share) go in their own extension column, so a
+// FinOps tool can see how much of each row's fully-loaded cost is facility.
+// A profile without a facility block reports 0.
+func TestWrite_FacilityMonthlyColumn(t *testing.T) {
+	share := 0.5
+	withFacility := sampleProfile()
+	withFacility.Spec.Facility = &finopsv1alpha1.FacilitySpec{
+		Recurring: []finopsv1alpha1.RecurringCost{{Name: "space", MonthlyUSD: 600}, {Name: "power", MonthlyUSD: 400}},
+		Share:     &share,
+	}
+	for _, tc := range []struct {
+		name    string
+		profile finopsv1alpha1.CostProfile
+		want    string
+	}{
+		{"facility block", withFacility, "500"},
+		{"no facility block", sampleProfile(), "0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := Write(&buf, ExportInput{
+				Reports:  []finopsv1alpha1.UsageReport{sampleReport()},
+				Profiles: map[string]finopsv1alpha1.CostProfile{"shadowstack-5060ti": tc.profile},
+			}); err != nil {
+				t.Fatalf("Write: %v", err)
+			}
+			header, rows := parseCSV(t, buf.Bytes())
+			idx := columnIdx(header, "x-InferFacilityMonthlyUSD")
+			if idx < 0 {
+				t.Fatal("missing x-InferFacilityMonthlyUSD column")
+			}
+			for _, row := range rows {
+				if row[idx] != tc.want {
+					t.Errorf("x-InferFacilityMonthlyUSD = %q, want %q", row[idx], tc.want)
+				}
+			}
+		})
+	}
+}

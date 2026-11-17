@@ -136,6 +136,9 @@ func runCompare(opts *compareOptions) error {
 		profile.Spec.Hardware.PurchasePriceUSD, profile.Spec.Hardware.AmortizationYears)
 	fmt.Printf("Electricity:     $%.2f/kWh, PUE %.1f\n",
 		profile.Spec.Electricity.RatePerKWh, profile.Spec.Electricity.PUEFactor)
+	if f := profile.Spec.Facility.MonthlyUSD(); f > 0 {
+		fmt.Printf("Facility:        $%.2f/month (fixed: space, flat-rate power, connectivity)\n", f)
+	}
 	fmt.Printf("Current Power:   %.1fW\n", profile.Status.CurrentPowerDrawWatts)
 	fmt.Printf("Uptime:          %.1f hours\n", hoursRunning)
 	fmt.Println()

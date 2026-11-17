@@ -11,7 +11,7 @@ var (
 		prometheus.GaugeOpts{
 			Namespace: "infercost",
 			Name:      "hourly_cost_usd",
-			Help:      "Total hourly infrastructure cost (amortization + electricity) in USD.",
+			Help:      "Total hourly infrastructure cost (amortization + electricity + facility) in USD.",
 		},
 		[]string{"cost_profile", "node", "gpu_model"},
 	)
@@ -32,6 +32,16 @@ var (
 			Namespace: "infercost",
 			Name:      "electricity_per_hour_usd",
 			Help:      "Hourly electricity cost in USD based on real-time GPU power draw.",
+		},
+		[]string{"cost_profile", "node"},
+	)
+
+	// FacilityPerHour is the fixed facility component of hourly cost.
+	FacilityPerHour = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "infercost",
+			Name:      "facility_per_hour_usd",
+			Help:      "Hourly fixed facility cost in USD (colocation space, flat-rate power, connectivity), from the CostProfile's monthly charges.",
 		},
 		[]string{"cost_profile", "node"},
 	)
@@ -184,6 +194,7 @@ func init() {
 		HourlyCostUSD,
 		AmortizationPerHour,
 		ElectricityPerHour,
+		FacilityPerHour,
 		GPUPowerWatts,
 		CostPerTokenUSD,
 		CostPerMillionTokensUSD,
