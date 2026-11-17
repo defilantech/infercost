@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/defilantech/infercost/compare/v0.6.0...v0.7.0) (2026-11-17)
+
+
+### Features
+
+* model fixed facility costs in CostProfile ([#107](https://github.com/defilantech/infercost/issues/107)) ([f9d5d40](https://github.com/defilantech/infercost/commit/f9d5d401f377327d5a33fb83459d9a0b08445f48))
+
 ## [0.6.0](https://github.com/defilantech/infercost/compare/v0.5.0...v0.6.0) (2026-10-02)
 
 
