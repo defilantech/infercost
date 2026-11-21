@@ -2,6 +2,25 @@ package calculator
 
 import "time"
 
+const (
+	// HoursPerYear is the basis every yearly projection uses, and the
+	// denominator of the amortization. A calendar year is not used: the
+	// figures are per continuously-running hour, so a fixed 8760 keeps two
+	// profiles with different start dates comparable.
+	HoursPerYear = 8760.0
+	// HoursPerMonth is one twelfth of a year (730), not 30 days (720). A
+	// monthly figure such as a facility charge is a contract for the calendar
+	// month, so projecting it back out at 730 hours returns the charge that
+	// was configured; 720 would read about 1.4% low.
+	HoursPerMonth = HoursPerYear / 12
+)
+
+// ProjectMonthly returns the cost of running continuously for an average month.
+func ProjectMonthly(hourly float64) float64 { return hourly * HoursPerMonth }
+
+// ProjectYearly returns the cost of running continuously for a year.
+func ProjectYearly(hourly float64) float64 { return hourly * HoursPerYear }
+
 // HardwareCosts holds the static cost parameters from a CostProfile.
 type HardwareCosts struct {
 	PurchasePriceUSD          float64
@@ -37,7 +56,7 @@ type CostResult struct {
 // ComputeHourlyCost calculates the hourly infrastructure cost from hardware economics,
 // fixed facility charges and current power draw.
 func ComputeHourlyCost(hw HardwareCosts, powerDrawWatts float64) (amortization, electricity, facility, total float64) {
-	hoursPerYear := float64(8760)
+	hoursPerYear := HoursPerYear
 	totalYears := float64(hw.AmortizationYears)
 
 	// Amortization: (purchase_price * (1 + maintenance%)) / total_hours
@@ -53,7 +72,7 @@ func ComputeHourlyCost(hw HardwareCosts, powerDrawWatts float64) (amortization, 
 
 	// Facility: the monthly charges spread over the hours of an average month
 	// (8760 / 12 = 730), whatever is drawn.
-	facility = hw.FacilityMonthlyUSD * 12 / hoursPerYear
+	facility = hw.FacilityMonthlyUSD / HoursPerMonth
 
 	total = amortization + electricity + facility
 	return
