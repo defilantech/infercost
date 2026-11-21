@@ -185,8 +185,8 @@ func runCompare(opts *compareOptions) error {
 	// Monthly projection if requested.
 	if opts.monthly && hoursRunning > 0 {
 		tokensPerHour := (totalInput + totalOutput) / hoursRunning
-		monthlyTokens := tokensPerHour * 24 * 30
-		monthlyOnPrem := profile.Status.HourlyCostUSD * 24 * 30
+		monthlyTokens := tokensPerHour * calculator.HoursPerMonth
+		monthlyOnPrem := calculator.ProjectMonthly(profile.Status.HourlyCostUSD)
 
 		fmt.Println()
 		fmt.Println("MONTHLY PROJECTION (based on current usage rate)")

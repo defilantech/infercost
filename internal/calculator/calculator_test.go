@@ -784,3 +784,23 @@ func TestPercentOfBreakEven(t *testing.T) {
 		t.Errorf("zero break-even should yield 0, got %v", got)
 	}
 }
+
+func TestProjectMonthlyReturnsTheConfiguredMonthlyCharge(t *testing.T) {
+	// A profile whose only cost is a $7,300/month facility charge reports
+	// $10/hour; projecting that hour back over a month has to return the
+	// charge it came from, not a 720-hour month's worth.
+	_, _, facility, total := ComputeHourlyCost(HardwareCosts{
+		AmortizationYears:  1,
+		PUEFactor:          1.0,
+		FacilityMonthlyUSD: 7300,
+	}, 0)
+	if !almostEqual(facility, 10) {
+		t.Fatalf("facility per hour = %v, want 10", facility)
+	}
+	if got := ProjectMonthly(total); !almostEqual(got, 7300) {
+		t.Errorf("ProjectMonthly(%v) = %v, want 7300", total, got)
+	}
+	if got := ProjectYearly(total); !almostEqual(got, 7300*12) {
+		t.Errorf("ProjectYearly(%v) = %v, want %v", total, got, 7300.0*12)
+	}
+}

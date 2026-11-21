@@ -105,8 +105,8 @@ func runStatus(opts *statusOptions) error {
 	// Calculate monthly/yearly projections.
 	for _, p := range profiles.Items {
 		if p.Status.HourlyCostUSD > 0 {
-			monthly := p.Status.HourlyCostUSD * 24 * 30
-			yearly := p.Status.HourlyCostUSD * 8760
+			monthly := calculator.ProjectMonthly(p.Status.HourlyCostUSD)
+			yearly := calculator.ProjectYearly(p.Status.HourlyCostUSD)
 			fmt.Printf("\n  %s projected: $%.2f/month, $%.2f/year\n", p.Name, monthly, yearly)
 		}
 	}
