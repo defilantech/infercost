@@ -16,11 +16,12 @@ rules:
   - get
   - list
   - watch
-# InferCost CRDs: full CRUD for cost profiles and usage reports
+# InferCost CRDs: full CRUD for cost profiles, usage reports and token budgets
 - apiGroups:
   - finops.infercost.ai
   resources:
   - costprofiles
+  - tokenbudgets
   - usagereports
   verbs:
   - create
@@ -34,6 +35,7 @@ rules:
   - finops.infercost.ai
   resources:
   - costprofiles/finalizers
+  - tokenbudgets/finalizers
   - usagereports/finalizers
   verbs:
   - update
@@ -41,6 +43,7 @@ rules:
   - finops.infercost.ai
   resources:
   - costprofiles/status
+  - tokenbudgets/status
   - usagereports/status
   verbs:
   - get
