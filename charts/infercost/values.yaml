@@ -15,6 +15,13 @@ controllerManager:
 
   replicaCount: 1
 
+  # Deployment update strategy. Recreate (not the default RollingUpdate) because the
+  # controller is single-replica and, with a persistent sampleStore, holds a
+  # single-writer bbolt lock on a ReadWriteOnce volume — a rolling surge deadlocks
+  # (the new pod blocks on the lock the old pod still holds). See #116.
+  strategy:
+    type: Recreate
+
   leaderElection:
     enabled: true
 
@@ -28,6 +35,11 @@ controllerManager:
 
   podSecurityContext:
     runAsNonRoot: true
+    # The controller runs non-root; fsGroup makes mounted volumes group-writable —
+    # notably a persistent sampleStore PVC, which otherwise mounts root-owned so bbolt
+    # fails to open its DB ("permission denied"). 65532 is the image's nonroot GID.
+    # See #113.
+    fsGroup: 65532
     seccompProfile:
       type: RuntimeDefault
 
